@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:tutorium_frontend/service/reviews.dart' as reviews_service;
+import 'package:tutorium_frontend/service/teachers.dart' as teachers_service;
 import 'package:tutorium_frontend/pages/widgets/report_dialog.dart';
 import 'package:tutorium_frontend/util/local_storage.dart';
 
@@ -599,12 +600,39 @@ class _MandatoryReviewPageState extends State<MandatoryReviewPage> {
 
     if (!mounted) return;
 
+    teachers_service.Teacher teacher;
+    try {
+      teacher = await teachers_service.Teacher.fetchById(widget.teacherId!);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('ไม่สามารถดึงข้อมูลผู้สอนได้: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
+    final reportedUserId = teacher.userId;
+    if (reportedUserId == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ไม่พบข้อมูลบัญชีครูสำหรับการรายงาน'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (context) => ReportDialog(
         classSessionId: widget.classSessionId!,
         reportUserId: userId,
-        reportedUserId: widget.teacherId!,
+        reportedUserId: reportedUserId,
         reportedUserName: widget.teacherName ?? 'ครูผู้สอน',
       ),
     );

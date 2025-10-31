@@ -145,6 +145,17 @@ class ScheduleCardSearch extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(15),
         onTap: () {
+          if (classId <= 0) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'ไม่สามารถเปิดรายละเอียดคลาสได้ ข้อมูลไม่ครบถ้วน',
+                ),
+                backgroundColor: Colors.red,
+              ),
+            );
+            return;
+          }
           Navigator.push(
             context,
             MaterialPageRoute(
