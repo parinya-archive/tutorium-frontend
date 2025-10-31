@@ -120,8 +120,7 @@ class NotificationService {
     debugPrint("📖 [DEBUG] URL: $url");
 
     final body = {
-      "notification_date":
-          notification["originalTime"] ?? notification["time"],
+      "notification_date": notification["originalTime"] ?? notification["time"],
       "notification_description": notification["text"],
       "notification_type": notification["type"],
       "read_flag": true,

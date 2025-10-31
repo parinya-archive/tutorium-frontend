@@ -297,31 +297,31 @@ class TeacherHomePageState extends State<TeacherHomePage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : !_isTeacher
-              ? _buildNoTeacherState()
-              : _isTeacherBanned
-                  ? _buildTeacherBannedState()
-                  : _errorMessage != null
-                      ? _buildErrorState()
-                      : RefreshIndicator(
-                          onRefresh: _loadClasses,
-                          child: SingleChildScrollView(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // Quick Actions Section
-                                  _buildQuickActions(),
-                                  const SizedBox(height: 24),
+          ? _buildNoTeacherState()
+          : _isTeacherBanned
+          ? _buildTeacherBannedState()
+          : _errorMessage != null
+          ? _buildErrorState()
+          : RefreshIndicator(
+              onRefresh: _loadClasses,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Quick Actions Section
+                      _buildQuickActions(),
+                      const SizedBox(height: 24),
 
-                                  // My Classes Section
-                                  _buildMyClassesSection(),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
+                      // My Classes Section
+                      _buildMyClassesSection(),
+                    ],
+                  ),
+                ),
+              ),
+            ),
       floatingActionButton:
           (_isLoading ||
               !_isTeacher ||
@@ -500,10 +500,7 @@ class TeacherHomePageState extends State<TeacherHomePage> {
               const SizedBox(height: 4),
               Text(
                 value,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey[900],
-                ),
+                style: TextStyle(fontSize: 14, color: Colors.grey[900]),
               ),
             ],
           ),

@@ -632,8 +632,9 @@ class _SearchPageState extends State<SearchPage> {
       }
 
       if (rawVal is Map) {
-        result[key] =
-            rawVal.map((dynamic k, dynamic v) => MapEntry(k.toString(), v));
+        result[key] = rawVal.map(
+          (dynamic k, dynamic v) => MapEntry(k.toString(), v),
+        );
         return;
       }
 
@@ -669,11 +670,11 @@ class _SearchPageState extends State<SearchPage> {
     for (final item in source) {
       Map<String, dynamic>? converted;
       if (item is Map<String, dynamic>) {
-        converted = _normalizeClassMap(item) ??
-            Map<String, dynamic>.from(item);
+        converted = _normalizeClassMap(item) ?? Map<String, dynamic>.from(item);
       } else if (item is Map) {
-        final map =
-            item.map((dynamic k, dynamic v) => MapEntry(k.toString(), v));
+        final map = item.map(
+          (dynamic k, dynamic v) => MapEntry(k.toString(), v),
+        );
         converted = _normalizeClassMap(map) ?? Map<String, dynamic>.from(map);
       }
       if (converted != null && converted.isNotEmpty) {
@@ -1120,9 +1121,7 @@ class _SearchPageState extends State<SearchPage> {
 
       final filteredData = _applyActiveFilters(data);
       final searched = api.searchLocal(filteredData, normalizedQuery);
-      setState(
-        () => _filteredClasses = _normalizeClassCollection(searched),
-      );
+      setState(() => _filteredClasses = _normalizeClassCollection(searched));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
