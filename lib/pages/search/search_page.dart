@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:tutorium_frontend/models/class_models.dart' as class_models;
 import 'package:tutorium_frontend/service/api_client.dart' show ApiException;
 import 'package:tutorium_frontend/service/learners.dart' as learner_api;
 import 'package:tutorium_frontend/pages/widgets/class_session_service.dart';
@@ -468,34 +469,105 @@ class _SearchPageState extends State<SearchPage> {
 
     try {
       final sessions = await ClassSessionService.getSessionsByClass(classId);
-      final upcomingSessions =
-          sessions.where((session) => session.classStart.isAfter(now)).toList()
-            ..sort((a, b) => a.classStart.compareTo(b.classStart));
+      if (sessions.isEmpty) {
+        return null;
+      }
 
-      final hasUpcomingSession = upcomingSessions.isNotEmpty;
-      final session = hasUpcomingSession ? upcomingSessions.first : null;
-      final startLocal = session?.classStart.toLocal();
-      final endLocal = session?.classFinish.toLocal();
+      final sortedSessions = List<class_models.ClassSession>.from(sessions)
+        ..sort((a, b) => a.classStart.compareTo(b.classStart));
+      final futureSessions = sortedSessions
+          .where((session) => session.classStart.isAfter(now))
+          .toList();
+      if (futureSessions.isEmpty) {
+        return null;
+      }
+
+      final openSessions = futureSessions
+          .where((session) => _isSessionEnrollmentOpen(session, now))
+          .toList();
+
+      final class_models.ClassSession displaySession = openSessions.isNotEmpty
+          ? openSessions.first
+          : futureSessions.first;
+      final bool hasUpcomingSession = openSessions.isNotEmpty;
+      final String? closureReason = _sessionClosureReason(displaySession, now);
+
+      if (closureReason != null) {
+        debugPrint(
+          'Search: session ${displaySession.id} closed for recommendation: '
+          '$closureReason',
+        );
+      }
+
+      final startLocal = displaySession.classStart.toLocal();
+      final endLocal = displaySession.classFinish.toLocal();
 
       int? enrolledCount;
-      if (session != null) {
+      bool isFull = false;
+      try {
+        final enrollments = await ClassSessionService.getEnrollmentsBySession(
+          displaySession.id,
+        );
+        final activeEnrollments = enrollments
+            .where((enrollment) {
+              final status = (enrollment['enrollment_status'] ?? '')
+                  .toString()
+                  .toLowerCase();
+              return status == 'active';
+            })
+            .toList(growable: false);
+        enrolledCount = activeEnrollments.length;
+        if (displaySession.learnerLimit > 0) {
+          isFull = enrolledCount >= displaySession.learnerLimit;
+        }
+      } catch (e) {
+        debugPrint(
+          'Search: failed to fetch enrollments for session '
+          '${displaySession.id}: $e',
+        );
+      }
+
+      String? teacherName = _resolveTeacherName(classData);
+      int? teacherId = _resolveTeacherId(classData);
+      if ((teacherName == null || teacherName.isEmpty) ||
+          teacherId == null ||
+          teacherId <= 0) {
         try {
-          final enrollments = await ClassSessionService.getEnrollmentsBySession(
-            session.id,
+          final classInfo = await ClassSessionService().fetchClassInfo(classId);
+          final fetchedName = classInfo.teacherName.trim();
+          if (teacherName == null || teacherName.isEmpty) {
+            if (fetchedName.isNotEmpty) {
+              teacherName = fetchedName;
+            }
+          }
+          if (teacherId == null || teacherId <= 0) {
+            if (classInfo.teacherId > 0) {
+              teacherId = classInfo.teacherId;
+            }
+          }
+        } catch (e) {
+          debugPrint('Search: unable to fetch teacher for class $classId: $e');
+        }
+      }
+      if ((teacherName == null || teacherName.isEmpty) &&
+          teacherId != null &&
+          teacherId > 0) {
+        try {
+          final fetched = await ClassSessionService.fetchTeacherDisplayName(
+            teacherId,
           );
-          enrolledCount = enrollments.length;
+          if (fetched != null && fetched.isNotEmpty) {
+            teacherName = fetched;
+          }
         } catch (e) {
           debugPrint(
-            'Search: failed to fetch enrollments for session ${session.id}: $e',
+            'Search: unable to resolve teacher name for id $teacherId: $e',
           );
         }
       }
-
-      final teacherRaw =
-          (classData['teacher_name'] ?? classData['teacherName'] ?? '')
-              .toString()
-              .trim();
-      final teacherName = teacherRaw.isEmpty ? 'Unknown Teacher' : teacherRaw;
+      final resolvedTeacherName = (teacherName == null || teacherName.isEmpty)
+          ? 'Unknown Teacher'
+          : teacherName;
 
       final imageUrl =
           (classData['banner_picture_url'] ??
@@ -509,23 +581,23 @@ class _SearchPageState extends State<SearchPage> {
 
       return _RecommendedClass(
         classId: classId,
-        sessionId: session?.id,
+        sessionId: displaySession.id,
         className:
             (classData['class_name'] ??
                     classData['className'] ??
                     'Unnamed Class')
                 .toString(),
-        teacherName: teacherName,
+        teacherName: resolvedTeacherName,
         date: startLocal,
-        startTime: startLocal != null
-            ? TimeOfDay.fromDateTime(startLocal)
-            : null,
-        endTime: endLocal != null ? TimeOfDay.fromDateTime(endLocal) : null,
+        startTime: TimeOfDay.fromDateTime(startLocal),
+        endTime: TimeOfDay.fromDateTime(endLocal),
         imageUrl: imageUrl,
         rating: rating,
         enrolledLearner: enrolledCount,
-        learnerLimit: session?.learnerLimit,
+        learnerLimit: displaySession.learnerLimit,
         hasUpcomingSession: hasUpcomingSession,
+        isEnrollmentClosed: closureReason != null,
+        isFull: isFull,
       );
     } catch (e, stackTrace) {
       debugPrint(
@@ -574,6 +646,195 @@ class _SearchPageState extends State<SearchPage> {
     });
 
     return result;
+  }
+
+  String? _resolveTeacherName(Map<String, dynamic> classData) {
+    final visited = <int>{};
+
+    String? traverse(dynamic node, {bool teacherContext = false}) {
+      if (node is Map<String, dynamic>) {
+        final identity = identityHashCode(node);
+        if (!visited.add(identity)) return null;
+        final directKeys = <String>[
+          'teacher_name',
+          'teacherName',
+          'teacher_full_name',
+          'teacherFullName',
+          'teacher_display_name',
+          'teacherDisplayName',
+          'teacher',
+        ];
+        final contextKeys = <String>[
+          'full_name',
+          'fullName',
+          'display_name',
+          'displayName',
+          'name',
+        ];
+        final firstKeys = <String>[
+          'teacher_first_name',
+          'teacherFirstName',
+          'first_name',
+          'firstName',
+        ];
+        final lastKeys = <String>[
+          'teacher_last_name',
+          'teacherLastName',
+          'last_name',
+          'lastName',
+        ];
+
+        final directMatch = _firstNonEmptyString(node, directKeys);
+        if (directMatch != null) return directMatch;
+
+        if (teacherContext) {
+          final contextMatch = _firstNonEmptyString(node, contextKeys);
+          if (contextMatch != null) return contextMatch;
+        }
+
+        final combined = _combineNameParts(
+          _firstNonEmptyString(node, firstKeys),
+          _firstNonEmptyString(node, lastKeys),
+        );
+        if (combined != null) return combined;
+
+        if (teacherContext) {
+          final teacherValue = node['teacher'];
+          final teacherString = _asNonEmptyString(teacherValue);
+          if (teacherString != null) return teacherString;
+        }
+
+        for (final entry in node.entries) {
+          final key = entry.key.toString();
+          final value = entry.value;
+          final lowerKey = key.toLowerCase();
+          final nextContext =
+              teacherContext ||
+              lowerKey.contains('teacher') ||
+              lowerKey.contains('instructor') ||
+              lowerKey.contains('tutor') ||
+              lowerKey.contains('mentor');
+          final result = traverse(value, teacherContext: nextContext);
+          if (result != null) return result;
+        }
+      } else if (node is List) {
+        for (final item in node) {
+          final result = traverse(item, teacherContext: teacherContext);
+          if (result != null) return result;
+        }
+      }
+      return null;
+    }
+
+    return traverse(classData);
+  }
+
+  String? _firstNonEmptyString(Map<String, dynamic> source, List<String> keys) {
+    if (source.isEmpty || keys.isEmpty) return null;
+    for (final key in keys) {
+      final target = key.toLowerCase();
+      for (final entry in source.entries) {
+        if (entry.key.toString().toLowerCase() != target) continue;
+        final resolved = _asNonEmptyString(entry.value);
+        if (resolved != null) return resolved;
+        break;
+      }
+    }
+    return null;
+  }
+
+  int? _resolveTeacherId(Map<String, dynamic> classData) {
+    final visited = <int>{};
+
+    int? traverse(dynamic node, {bool teacherContext = false}) {
+      if (node is Map) {
+        final map = node as Map<dynamic, dynamic>;
+        final identity = identityHashCode(map);
+        if (!visited.add(identity)) return null;
+
+        final directKeys = <String>[
+          'teacher_id',
+          'teacherid',
+          'teacherId',
+          'teacherID',
+        ];
+
+        final directMatch = _firstNonNullInt(map, directKeys);
+        if (directMatch != null && directMatch > 0) {
+          return directMatch;
+        }
+
+        if (teacherContext) {
+          final contextMatch = _firstNonNullInt(map, ['id', 'ID']);
+          if (contextMatch != null && contextMatch > 0) {
+            return contextMatch;
+          }
+        }
+
+        for (final entry in map.entries) {
+          final key = entry.key.toString();
+          final value = entry.value;
+          final lowerKey = key.toLowerCase();
+          final nextContext =
+              teacherContext ||
+              lowerKey.contains('teacher') ||
+              lowerKey.contains('instructor') ||
+              lowerKey.contains('tutor') ||
+              lowerKey.contains('mentor');
+          final result = traverse(value, teacherContext: nextContext);
+          if (result != null) return result;
+        }
+      } else if (node is List) {
+        for (final item in node) {
+          final result = traverse(item, teacherContext: teacherContext);
+          if (result != null) return result;
+        }
+      }
+      return null;
+    }
+
+    return traverse(classData);
+  }
+
+  int? _firstNonNullInt(Map<dynamic, dynamic> source, List<String> keys) {
+    if (source.isEmpty || keys.isEmpty) return null;
+    for (final key in keys) {
+      final target = key.toLowerCase();
+      for (final entry in source.entries) {
+        if (entry.key.toString().toLowerCase() != target) continue;
+        final resolved = _asInt(entry.value);
+        if (resolved != null && resolved > 0) {
+          return resolved;
+        }
+        break;
+      }
+    }
+    return null;
+  }
+
+  String? _combineNameParts(String? first, String? last) {
+    if ((first == null || first.isEmpty) && (last == null || last.isEmpty)) {
+      return null;
+    }
+    final buffer = StringBuffer();
+    if (first != null && first.isNotEmpty) {
+      buffer.write(first.trim());
+    }
+    if (last != null && last.isNotEmpty) {
+      if (buffer.isNotEmpty) buffer.write(' ');
+      buffer.write(last.trim());
+    }
+    final combined = buffer.toString().trim();
+    if (combined.isEmpty) return null;
+    return combined.replaceAll(RegExp(r'\s{2,}'), ' ');
+  }
+
+  String? _asNonEmptyString(dynamic value) {
+    if (value is String) {
+      final trimmed = value.trim();
+      if (trimmed.isNotEmpty) return trimmed;
+    }
+    return null;
   }
 
   int? _asInt(dynamic value) {
@@ -694,6 +955,44 @@ class _SearchPageState extends State<SearchPage> {
           return true;
         })
         .toList(growable: false);
+  }
+
+  String? _sessionClosureReason(
+    class_models.ClassSession session,
+    DateTime reference,
+  ) {
+    final nowUtc = reference.toUtc();
+    final deadlineUtc = session.enrollmentDeadline.toUtc();
+    if (!nowUtc.isBefore(deadlineUtc)) {
+      return 'deadline passed (${deadlineUtc.toIso8601String()})';
+    }
+
+    final finishUtc = session.classFinish.toUtc();
+    if (!nowUtc.isBefore(finishUtc)) {
+      return 'session finished (${finishUtc.toIso8601String()})';
+    }
+
+    final status = session.classStatus.toLowerCase();
+    const closedStatuses = {
+      'finished',
+      'complete',
+      'completed',
+      'cancelled',
+      'canceled',
+      'closed',
+    };
+    if (closedStatuses.contains(status)) {
+      return 'status=${session.classStatus}';
+    }
+
+    return null;
+  }
+
+  bool _isSessionEnrollmentOpen(
+    class_models.ClassSession session,
+    DateTime reference,
+  ) {
+    return _sessionClosureReason(session, reference) == null;
   }
 
   Future<void> _search(String query) async {
@@ -1205,7 +1504,7 @@ class _SearchPageState extends State<SearchPage> {
                             ),
                           ),
                           SizedBox(
-                            height: 180,
+                            height: 210,
                             child: AnimatedSwitcher(
                               duration: const Duration(milliseconds: 300),
                               child: _isLoadingRecommended
@@ -1264,8 +1563,11 @@ class _SearchPageState extends State<SearchPage> {
                                             fallbackAsset:
                                                 'assets/images/default.jpg',
                                             rating: item.rating,
-                                            showSchedule:
-                                                item.hasUpcomingSession,
+                                            showSchedule: item.date != null,
+                                            isEnrollmentClosed:
+                                                item.isEnrollmentClosed,
+                                            isFullyBooked: item.isFull,
+                                            showOccupancyDetails: false,
                                           ),
                                         );
                                       },
@@ -1461,6 +1763,8 @@ class _RecommendedClass {
   final int? enrolledLearner;
   final int? learnerLimit;
   final bool hasUpcomingSession;
+  final bool isEnrollmentClosed;
+  final bool isFull;
 
   const _RecommendedClass({
     required this.classId,
@@ -1475,6 +1779,8 @@ class _RecommendedClass {
     this.enrolledLearner,
     this.learnerLimit,
     required this.hasUpcomingSession,
+    required this.isEnrollmentClosed,
+    required this.isFull,
   });
 }
 
