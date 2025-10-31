@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:tutorium_frontend/models/models.dart';
 import 'package:tutorium_frontend/pages/home/teacher/my_classes_page.dart';
 import 'package:tutorium_frontend/pages/home/teacher/create_class_page.dart';
@@ -32,18 +33,31 @@ class TeacherHomePageState extends State<TeacherHomePage> {
   String? _errorMessage;
   String? _teacherDisplayName;
   BanStatusInfo? _teacherBanInfo;
+  bool _isThaiLocaleReady = false;
   final _classCache = ClassCacheManager();
 
   @override
   void initState() {
     super.initState();
     _classCache.initialize();
-    _loadTeacherData();
+    _prepareLocaleAndLoad();
   }
 
   @override
   void dispose() {
     super.dispose();
+  }
+
+  Future<void> _prepareLocaleAndLoad() async {
+    try {
+      await initializeDateFormatting('th');
+      _isThaiLocaleReady = true;
+    } catch (e) {
+      debugPrint('⚠️ Failed to initialize Thai locale formatting: $e');
+      _isThaiLocaleReady = false;
+    } finally {
+      await _loadTeacherData();
+    }
   }
 
   /// Public method to refresh data when network reconnects
@@ -512,7 +526,15 @@ class TeacherHomePageState extends State<TeacherHomePage> {
   String _formatBanDate(DateTime? date) {
     if (date == null) return '-';
     final localDate = date.toLocal();
-    return DateFormat('d MMM yyyy, HH:mm', 'th').format(localDate);
+    try {
+      if (_isThaiLocaleReady) {
+        return DateFormat('d MMM yyyy, HH:mm', 'th').format(localDate);
+      }
+      return DateFormat('d MMM yyyy, HH:mm').format(localDate);
+    } catch (e) {
+      debugPrint('⚠️ Failed to format date: $e');
+      return DateFormat('yyyy-MM-dd HH:mm').format(localDate);
+    }
   }
 
   Future<BanStatusInfo?> _fetchActiveTeacherBan(int userId) async {

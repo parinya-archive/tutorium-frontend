@@ -28,6 +28,19 @@ class ScheduleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    Widget buildImage() {
+      if (imagePath.isEmpty) {
+        return _gradientFallback();
+      }
+      return Image.asset(
+        imagePath,
+        width: 120,
+        height: 100,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _gradientFallback(),
+      );
+    }
+
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
       elevation: 3,
@@ -40,12 +53,7 @@ class ScheduleCard extends StatelessWidget {
               topLeft: Radius.circular(15),
               bottomLeft: Radius.circular(15),
             ),
-            child: Image.asset(
-              imagePath,
-              width: 120,
-              height: 100,
-              fit: BoxFit.cover,
-            ),
+            child: buildImage(),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -76,6 +84,30 @@ class ScheduleCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _gradientFallback() {
+    return Container(
+      width: 120,
+      height: 100,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Color(0xFFDEE7FF),
+            Color(0xFFC6D4FF),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: const Center(
+        child: Icon(
+          Icons.auto_stories_rounded,
+          color: Color(0xFF3049A0),
+          size: 36,
+        ),
       ),
     );
   }

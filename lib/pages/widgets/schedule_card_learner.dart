@@ -359,7 +359,7 @@ class ScheduleCardLearner extends StatelessWidget {
   }
 
   Widget _buildImage(double width, double height) {
-    const fallback = 'assets/images/guitar.jpg';
+    const fallbackIcon = Icons.auto_stories_rounded;
 
     if (imagePath.toLowerCase().startsWith('data:image')) {
       try {
@@ -370,7 +370,8 @@ class ScheduleCardLearner extends StatelessWidget {
           width: width,
           height: height,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _fallbackImage(width, height, fallback),
+          errorBuilder: (_, __, ___) =>
+              _fallbackImage(width, height, fallbackIcon),
         );
       } catch (e) {
         debugPrint('⚠️ Failed to decode base64 class image: $e');
@@ -386,33 +387,78 @@ class ScheduleCardLearner extends StatelessWidget {
         cacheManager: ClassImageCacheManager(),
         fadeInDuration: const Duration(milliseconds: 300),
         fadeOutDuration: const Duration(milliseconds: 100),
-        placeholder: (context, url) => Container(
-          width: width,
-          height: height,
-          color: Colors.grey[200],
-          child: const Center(
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.amber),
-            ),
-          ),
-        ),
+        placeholder: (context, url) => _loadingPlaceholder(width, height),
         errorWidget: (context, url, error) =>
-            _fallbackImage(width, height, fallback),
+            _fallbackImage(width, height, fallbackIcon),
       );
     }
 
-    final assetPath = imagePath.isNotEmpty ? imagePath : fallback;
+    final assetPath = imagePath.isNotEmpty ? imagePath : '';
+    if (assetPath.isEmpty) {
+      return _fallbackImage(width, height, fallbackIcon);
+    }
     return Image.asset(
       assetPath,
       width: width,
       height: height,
       fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => _fallbackImage(width, height, fallback),
+      errorBuilder: (_, __, ___) =>
+          _fallbackImage(width, height, fallbackIcon),
     );
   }
 
-  Widget _fallbackImage(double width, double height, String asset) {
-    return Image.asset(asset, width: width, height: height, fit: BoxFit.cover);
+  Widget _loadingPlaceholder(double width, double height) {
+    return _gradientBackdrop(
+      width,
+      height,
+      icon: Icons.sync,
+      child: const SizedBox(
+        width: 22,
+        height: 22,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+        ),
+      ),
+    );
+  }
+
+  Widget _fallbackImage(double width, double height, IconData icon) {
+    return _gradientBackdrop(width, height, icon: icon);
+  }
+
+  Widget _gradientBackdrop(
+    double width,
+    double height, {
+    required IconData icon,
+    Widget? child,
+  }) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Color(0xFFDEE7FF),
+            Color(0xFFC6D4FF),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Center(
+            child: Icon(
+              icon,
+              color: const Color(0xFF3049A0),
+              size: height * 0.35,
+            ),
+          ),
+          if (child != null) Center(child: child),
+        ],
+      ),
+    );
   }
 }

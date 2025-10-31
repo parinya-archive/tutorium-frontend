@@ -78,27 +78,51 @@ class _CachedNetworkImageState extends State<CachedNetworkImage> {
   @override
   Widget build(BuildContext context) {
     Widget child;
+    Widget buildGradientBackdrop({
+      IconData icon = Icons.image_outlined,
+      Widget? overlay,
+    }) {
+      return Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Color(0xFFE6EBFF),
+              Color(0xFFCBD5FF),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Center(
+              child: Icon(
+                icon,
+                color: const Color(0xFF3B4C9B),
+                size: 40,
+              ),
+            ),
+            if (overlay != null) Center(child: overlay),
+          ],
+        ),
+      );
+    }
 
     if (_isLoading) {
       child =
           widget.placeholder ??
-          Container(
-            color: Colors.grey[300],
-            child: const Center(
-              child: SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
+          buildGradientBackdrop(
+            overlay: const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
             ),
           );
     } else if (_hasError || _imageBytes == null) {
       child =
           widget.errorWidget ??
-          Container(
-            color: Colors.grey[300],
-            child: Icon(Icons.broken_image, color: Colors.grey[600], size: 48),
-          );
+          buildGradientBackdrop(icon: Icons.image_rounded);
     } else {
       child = Image.memory(
         _imageBytes!,

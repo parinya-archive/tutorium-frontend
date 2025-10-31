@@ -79,7 +79,7 @@ class ScheduleCardRecommend extends StatelessWidget {
                 SizedBox(
                   height: 90,
                   width: double.infinity,
-                  child: Image.asset(imagePath, fit: BoxFit.cover),
+                  child: _buildImage(),
                 ),
                 // ป้ายแจ้งเตือน
                 if (statusText.isNotEmpty)
@@ -207,6 +207,39 @@ class ScheduleCardRecommend extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImage() {
+    if (imagePath.isEmpty) {
+      return _gradientFallback();
+    }
+    return Image.asset(
+      imagePath,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => _gradientFallback(),
+    );
+  }
+
+  Widget _gradientFallback() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Color(0xFFDEE7FF),
+            Color(0xFFC6D4FF),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: const Center(
+        child: Icon(
+          Icons.auto_stories_rounded,
+          color: Color(0xFF3049A0),
+          size: 36,
         ),
       ),
     );

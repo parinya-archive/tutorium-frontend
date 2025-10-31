@@ -55,6 +55,28 @@ class ScheduleCardSearch extends StatelessWidget {
         learnerLimit! > 0;
 
     Widget buildImage() {
+      Widget gradientFallback() {
+        return Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color(0xFFDEE7FF),
+                Color(0xFFC6D4FF),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: const Center(
+            child: Icon(
+              Icons.auto_stories_rounded,
+              color: Color(0xFF3049A0),
+              size: 36,
+            ),
+          ),
+        );
+      }
+
       final path = imageUrl;
       if (path != null && path.isNotEmpty) {
         if (path.startsWith('http')) {
@@ -65,22 +87,42 @@ class ScheduleCardSearch extends StatelessWidget {
             fadeInDuration: const Duration(milliseconds: 300),
             fadeOutDuration: const Duration(milliseconds: 100),
             placeholder: (context, url) => Container(
-              color: Colors.grey[200],
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Color(0xFFDEE7FF),
+                    Color(0xFFC6D4FF),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
               child: const Center(
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.amber),
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                 ),
               ),
             ),
             errorWidget: (context, url, error) =>
-                Image.asset(fallbackAsset, fit: BoxFit.cover),
+                gradientFallback(),
           );
         }
-        return Image.asset(path, fit: BoxFit.cover);
+        return Image.asset(
+          path,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => gradientFallback(),
+        );
       }
 
-      return Image.asset(fallbackAsset, fit: BoxFit.cover);
+      if (fallbackAsset.isNotEmpty) {
+        return Image.asset(
+          fallbackAsset,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => gradientFallback(),
+        );
+      }
+      return gradientFallback();
     }
 
     // คำนวณเปอร์เซ็นต์ที่จองแล้ว (only if data available)
