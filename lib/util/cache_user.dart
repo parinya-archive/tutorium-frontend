@@ -118,6 +118,8 @@ Map<String, dynamic> _userToCacheJson(user_api.User user) {
             'ID': user.learner!.id,
             'user_id': user.learner!.userId,
             'flag_count': user.learner!.flagCount,
+            if (user.learner!.interestedCategories.isNotEmpty)
+              'interested_categories': user.learner!.interestedCategories,
           },
   }..removeWhere((key, value) => value == null);
 }

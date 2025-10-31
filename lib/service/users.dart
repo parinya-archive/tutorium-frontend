@@ -157,14 +157,35 @@ class Learner {
   final int id;
   final int userId;
   final int? flagCount;
+  final List<String> interestedCategories;
 
-  const Learner({required this.id, required this.userId, this.flagCount});
+  const Learner({
+    required this.id,
+    required this.userId,
+    this.flagCount,
+    this.interestedCategories = const [],
+  });
 
   factory Learner.fromJson(Map<String, dynamic> json) {
     return Learner(
       id: json['ID'] ?? json['id'] ?? 0,
       userId: json['user_id'] ?? 0,
       flagCount: json['flag_count'],
+      interestedCategories: _extractInterested(json),
+    );
+  }
+
+  Learner copyWith({
+    int? id,
+    int? userId,
+    int? flagCount,
+    List<String>? interestedCategories,
+  }) {
+    return Learner(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      flagCount: flagCount ?? this.flagCount,
+      interestedCategories: interestedCategories ?? this.interestedCategories,
     );
   }
 }
@@ -177,4 +198,41 @@ double _parseDouble(dynamic value) {
     return double.tryParse(value) ?? 0;
   }
   return 0;
+}
+
+List<String> _extractInterested(Map<String, dynamic> json) {
+  final interested = json['Interested'];
+  if (interested is List) {
+    final names = interested
+        .map((row) {
+          if (row is Map<String, dynamic>) {
+            final category = row['ClassCategory'];
+            if (category is Map<String, dynamic>) {
+              final name = category['class_category'] ?? category['name'];
+              return name?.toString().trim();
+            }
+          }
+          return null;
+        })
+        .where((value) => value != null && value!.isNotEmpty)
+        .map((value) => value!)
+        .toSet()
+        .toList(growable: false)
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return names;
+  }
+
+  final categories = json['interested_categories'] ?? json['categories'];
+  if (categories is List) {
+    final names = categories
+        .map((value) => value?.toString().trim())
+        .where((value) => value != null && value!.isNotEmpty)
+        .map((value) => value!)
+        .toSet()
+        .toList(growable: false)
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return names;
+  }
+
+  return const [];
 }

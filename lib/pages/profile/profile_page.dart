@@ -10,6 +10,9 @@ import 'package:tutorium_frontend/pages/widgets/cached_network_image.dart';
 import 'package:tutorium_frontend/pages/widgets/history_class.dart';
 import 'package:tutorium_frontend/service/api_client.dart' show ApiException;
 import 'package:tutorium_frontend/service/classes.dart' as class_api;
+import 'package:tutorium_frontend/service/class_categories.dart'
+    as category_api;
+import 'package:tutorium_frontend/service/learners.dart' as learner_api;
 import 'package:tutorium_frontend/service/rating_service.dart';
 import 'package:tutorium_frontend/service/teachers.dart' as teacher_api;
 import 'package:tutorium_frontend/service/users.dart' as user_api;
@@ -38,6 +41,12 @@ class _ProfilePageState extends State<ProfilePage> {
   String? teacherRatingError;
   double? teacherRating;
   final RatingService _ratingService = RatingService();
+  List<category_api.ClassCategory> _allCategories =
+      <category_api.ClassCategory>[];
+  List<int> _selectedCategoryIds = <int>[];
+  bool _isInterestLoading = false;
+  bool _isSavingInterests = false;
+  String? _interestError;
 
   @override
   void initState() {
@@ -81,6 +90,17 @@ class _ProfilePageState extends State<ProfilePage> {
           _descriptionController.text = fetchedUser.teacher!.description!;
         }
       });
+
+      if (fetchedUser.learner != null) {
+        try {
+          await LocalStorage.saveLearnerId(fetchedUser.learner!.id);
+          debugPrint(
+            '🧠 Profile: cached learnerId=${fetchedUser.learner!.id} locally',
+          );
+        } catch (e) {
+          debugPrint('⚠️ Profile: failed to cache learnerId - $e');
+        }
+      }
 
       debugPrint(
         "DEBUG ProfilePage: user loaded - ${fetchedUser.firstName} ${fetchedUser.lastName}",
@@ -129,6 +149,10 @@ class _ProfilePageState extends State<ProfilePage> {
         debugPrint('⚠️ Failed to save user profile to cache: $e');
       }
 
+      await _hydrateLearnerInterests(
+        fetchedUser,
+        forceRefresh: forceRefresh,
+      );
       await fetchTeacherRating(fetchedUser);
       await fetchClasses(fetchedUser);
     } on ApiException catch (e) {
@@ -306,6 +330,158 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  Future<void> _hydrateLearnerInterests(
+    user_api.User fetchedUser, {
+    bool forceRefresh = false,
+  }) async {
+    final learner = fetchedUser.learner;
+    if (learner == null) {
+      if (mounted) {
+        setState(() {
+          _selectedCategoryIds = <int>[];
+          _interestError = null;
+          _isInterestLoading = false;
+        });
+      } else {
+        _selectedCategoryIds = <int>[];
+        _interestError = null;
+        _isInterestLoading = false;
+      }
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _isInterestLoading = true;
+        if (forceRefresh) {
+          _interestError = null;
+        }
+      });
+    } else {
+      _isInterestLoading = true;
+      if (forceRefresh) {
+        _interestError = null;
+      }
+    }
+
+    try {
+      final categories = await _loadCategories(forceRefresh: forceRefresh);
+      final interestState =
+          await learner_api.LearnerInterestService.fetchInterests(learner.id);
+      final selection = _mapCategoryNamesToIds(
+        interestState.categories,
+        categories,
+      );
+      final updatedLearner = learner.copyWith(
+        interestedCategories: interestState.categories,
+      );
+      final updatedUser = fetchedUser.copyWith(learner: updatedLearner);
+
+      if (mounted) {
+        setState(() {
+          user = updatedUser;
+          _allCategories = categories;
+          _selectedCategoryIds = selection;
+          _interestError = null;
+        });
+      } else {
+        user = updatedUser;
+        _allCategories = categories;
+        _selectedCategoryIds = selection;
+        _interestError = null;
+      }
+
+      UserCache().updateUser(updatedUser);
+      debugPrint(
+        '🎯 Profile: synced ${selection.length} learner interests (learnerId=${learner.id})',
+      );
+    } on ApiException catch (e) {
+      final message = 'ไม่สามารถโหลดสิ่งที่ชอบได้ (${e.statusCode})';
+      debugPrint('❌ Profile interests API error: $e');
+      if (mounted) {
+        setState(() {
+          _interestError = message;
+        });
+      } else {
+        _interestError = message;
+      }
+    } catch (e, stackTrace) {
+      debugPrint('❌ Profile interests error: $e');
+      debugPrint('$stackTrace');
+      const message = 'เกิดข้อผิดพลาดในการโหลดสิ่งที่ชอบ';
+      if (mounted) {
+        setState(() {
+          _interestError = message;
+        });
+      } else {
+        _interestError = message;
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isInterestLoading = false;
+        });
+      } else {
+        _isInterestLoading = false;
+      }
+    }
+  }
+
+  Future<List<category_api.ClassCategory>> _loadCategories({
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh && _allCategories.isNotEmpty) {
+      return _allCategories;
+    }
+    final categories = await category_api.ClassCategory.fetchAll();
+    final sorted = List<category_api.ClassCategory>.from(categories)
+      ..sort(
+        (a, b) => a.classCategory
+            .toLowerCase()
+            .compareTo(b.classCategory.toLowerCase()),
+      );
+    return sorted;
+  }
+
+  List<int> _mapCategoryNamesToIds(
+    List<String> names,
+    List<category_api.ClassCategory> categories,
+  ) {
+    if (names.isEmpty) return <int>[];
+    final lookup = <String, int>{
+      for (final category in categories)
+        category.classCategory.toLowerCase(): category.id,
+    };
+    final ids = names
+        .map((name) => lookup[name.toLowerCase()])
+        .whereType<int>()
+        .toSet()
+        .toList(growable: false)
+      ..sort();
+    return ids;
+  }
+
+  List<String> _mapCategoryIdsToNames(
+    Iterable<int> ids,
+    List<category_api.ClassCategory> categories,
+  ) {
+    if (ids.isEmpty) return const <String>[];
+    final lookup = <int, String>{
+      for (final category in categories) category.id: category.classCategory,
+    };
+    final names = ids
+        .map((id) => lookup[id])
+        .whereType<String>()
+        .map((name) => name.trim())
+        .where((name) => name.isNotEmpty)
+        .toSet()
+        .toList(growable: false)
+      ..sort(
+        (a, b) => a.toLowerCase().compareTo(b.toLowerCase()),
+      );
+    return names;
+  }
+
   Widget _buildTeacherRatingRow() {
     if (user?.teacher == null) {
       return const SizedBox.shrink();
@@ -359,6 +535,551 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
       ],
     );
+  }
+
+  Widget _buildInterestsCard() {
+    if (user?.learner == null) {
+      return const SizedBox.shrink();
+    }
+
+    final theme = Theme.of(context);
+    final interests = user?.learner?.interestedCategories ?? const <String>[];
+    final hasInterests = interests.isNotEmpty;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Material(
+        elevation: 1.5,
+        borderRadius: BorderRadius.circular(18),
+        color: theme.cardColor,
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withOpacity(0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.favorite,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'สิ่งที่ชอบ',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          hasInterests
+                              ? 'ใช้เพื่อแนะนำคลาสที่ตรงใจคุณมากขึ้น'
+                              : 'ยังไม่ได้เลือกสิ่งที่ชอบ ลองเพิ่มเพื่อรับคำแนะนำเฉพาะคุณ',
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: (_isInterestLoading || _isSavingInterests)
+                        ? null
+                        : _openInterestEditor,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('แก้ไข'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: theme.colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              if (_isInterestLoading)
+                const Center(
+                  child: SizedBox(
+                    height: 22,
+                    width: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              else if (_interestError != null)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _interestError!,
+                      style: TextStyle(
+                        color: Colors.red.shade500,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      onPressed: () {
+                        final currentUser = user;
+                        if (currentUser != null) {
+                          _hydrateLearnerInterests(
+                            currentUser,
+                            forceRefresh: true,
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('ลองอีกครั้ง'),
+                    ),
+                  ],
+                )
+              else if (hasInterests)
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: interests
+                      .map(
+                        (name) => Chip(
+                          label: Text(name),
+                          backgroundColor:
+                              theme.colorScheme.primary.withOpacity(0.08),
+                          labelStyle: TextStyle(
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
+                )
+              else
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.lightbulb_outline, color: Colors.amber[600]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'เลือกหมวดหมู่ที่คุณสนใจเพื่อให้ระบบแนะนำคลาสได้ตรงความต้องการมากขึ้น',
+                        style: TextStyle(
+                          color: Colors.grey.shade700,
+                          fontSize: 13,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openInterestEditor() async {
+    if (_isInterestLoading || _isSavingInterests || user?.learner == null) {
+      return;
+    }
+
+    try {
+      final categories = await _loadCategories();
+      if (mounted) {
+        setState(() {
+          _allCategories = categories;
+        });
+      } else {
+        _allCategories = categories;
+      }
+    } catch (e, stackTrace) {
+      debugPrint('❌ Profile: failed to load categories $e');
+      debugPrint('$stackTrace');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('โหลดหมวดหมู่ไม่สำเร็จ กรุณาลองใหม่')),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
+    final sortedCategories =
+        List<category_api.ClassCategory>.from(_allCategories)
+          ..sort(
+            (a, b) => a.classCategory
+                .toLowerCase()
+                .compareTo(b.classCategory.toLowerCase()),
+          );
+    final originalSelection = Set<int>.from(_selectedCategoryIds);
+    final selection = Set<int>.from(_selectedCategoryIds);
+    String keyword = '';
+    bool localSaving = false;
+    final controller = TextEditingController();
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final visibleCategories = sortedCategories.where((category) {
+              if (keyword.isEmpty) return true;
+              return category.classCategory
+                  .toLowerCase()
+                  .contains(keyword.toLowerCase());
+            }).toList(growable: false);
+
+            return GestureDetector(
+              onTap: () => FocusScope.of(context).unfocus(),
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom,
+                ),
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(24),
+                  ),
+                  child: Material(
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                    child: SafeArea(
+                      top: false,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 4,
+                            margin: const EdgeInsets.only(top: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade400,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+                            child: Row(
+                              children: [
+                                const Expanded(
+                                  child: Text(
+                                    'เลือกสิ่งที่ชอบ',
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  '${selection.length}/${sortedCategories.length}',
+                                  style: TextStyle(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            child: TextField(
+                              controller: controller,
+                              decoration: InputDecoration(
+                                hintText: 'ค้นหาหมวดหมู่...',
+                                prefixIcon: const Icon(Icons.search),
+                                suffixIcon: keyword.isEmpty
+                                    ? null
+                                    : IconButton(
+                                        icon: const Icon(Icons.clear),
+                                        onPressed: () {
+                                          setModalState(() {
+                                            keyword = '';
+                                            controller.clear();
+                                          });
+                                        },
+                                      ),
+                                filled: true,
+                                fillColor: Colors.grey.shade200,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  borderSide: BorderSide.none,
+                                ),
+                              ),
+                              onChanged: (value) {
+                                setModalState(() {
+                                  keyword = value.trim();
+                                });
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          if (visibleCategories.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                                vertical: 36,
+                              ),
+                              child: Column(
+                                children: [
+                                  Icon(
+                                    Icons.search_off,
+                                    size: 48,
+                                    color: Colors.grey.shade400,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'ไม่พบหมวดหมู่ที่ตรงกับ "${controller.text}"',
+                                    style: TextStyle(
+                                      color: Colors.grey.shade600,
+                                      fontSize: 14,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxHeight:
+                                    MediaQuery.of(context).size.height * 0.45,
+                              ),
+                              child: SingleChildScrollView(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                                child: Wrap(
+                                  spacing: 10,
+                                  runSpacing: 10,
+                                  children: visibleCategories.map((category) {
+                                    final isSelected =
+                                        selection.contains(category.id);
+                                    return FilterChip(
+                                      label: Text(category.classCategory),
+                                      selected: isSelected,
+                                      showCheckmark: true,
+                                      selectedColor: Theme.of(context)
+                                          .colorScheme
+                                          .primary
+                                          .withOpacity(0.15),
+                                      onSelected: (value) {
+                                        setModalState(() {
+                                          if (value) {
+                                            selection.add(category.id);
+                                          } else {
+                                            selection.remove(category.id);
+                                          }
+                                        });
+                                      },
+                                    );
+                                  }).toList(growable: false),
+                                ),
+                              ),
+                            ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+                            child: Row(
+                              children: [
+                                TextButton(
+                                  onPressed: selection.isEmpty
+                                      ? null
+                                      : () {
+                                          setModalState(selection.clear);
+                                        },
+                                  child: const Text('ล้างทั้งหมด'),
+                                ),
+                                const Spacer(),
+                                SizedBox(
+                                  width: 160,
+                                  child: ElevatedButton(
+                                    onPressed: localSaving
+                                        ? null
+                                        : () async {
+                                            await _persistLearnerInterests(
+                                              sheetContext,
+                                              Set<int>.from(selection),
+                                              originalSelection,
+                                              categories: sortedCategories,
+                                              onSavingChanged: (value) {
+                                                setModalState(
+                                                  () => localSaving = value,
+                                                );
+                                              },
+                                            );
+                                          },
+                                    style: ElevatedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                    ),
+                                    child: localSaving
+                                        ? const SizedBox(
+                                            height: 18,
+                                            width: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Text(
+                                            'บันทึก',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    controller.dispose();
+  }
+
+  Future<void> _persistLearnerInterests(
+    BuildContext sheetContext,
+    Set<int> nextSelection,
+    Set<int> previousSelection, {
+    required List<category_api.ClassCategory> categories,
+    required void Function(bool isSaving) onSavingChanged,
+  }) async {
+    if (_isSavingInterests) return;
+
+    final additions =
+        nextSelection.difference(previousSelection).toList(growable: false);
+    final removals =
+        previousSelection.difference(nextSelection).toList(growable: false);
+
+    if (additions.isEmpty && removals.isEmpty) {
+      Navigator.of(sheetContext).pop();
+      return;
+    }
+
+    onSavingChanged(true);
+    if (mounted) {
+      setState(() {
+        _isSavingInterests = true;
+      });
+    } else {
+      _isSavingInterests = true;
+    }
+
+    var sheetClosed = false;
+
+    try {
+      final learnerId = user?.learner?.id;
+      if (learnerId == null) {
+        throw StateError('Learner ID is not available');
+      }
+
+      learner_api.LearnerInterestState? latestState;
+
+      if (additions.isNotEmpty) {
+        latestState = await learner_api.LearnerInterestService.addInterests(
+          learnerId,
+          additions,
+        );
+      }
+
+      if (removals.isNotEmpty) {
+        latestState = await learner_api.LearnerInterestService.removeInterests(
+          learnerId,
+          removals,
+        );
+      }
+
+      final resolvedNames = latestState?.categories ??
+          _mapCategoryIdsToNames(nextSelection, categories);
+      final normalizedSelection =
+          _mapCategoryNamesToIds(resolvedNames, categories);
+
+      if (mounted) {
+        setState(() {
+          _selectedCategoryIds = normalizedSelection;
+          _isSavingInterests = false;
+          _interestError = null;
+          user = user?.copyWith(
+            learner: user?.learner?.copyWith(
+                  interestedCategories: resolvedNames,
+                ),
+          );
+        });
+      } else {
+        _selectedCategoryIds = normalizedSelection;
+        _isSavingInterests = false;
+        _interestError = null;
+        user = user?.copyWith(
+          learner: user?.learner?.copyWith(
+                interestedCategories: resolvedNames,
+              ),
+        );
+      }
+
+      if (user != null) {
+        UserCache().updateUser(user!);
+      }
+
+      if (mounted) {
+        Navigator.of(sheetContext).pop();
+        sheetClosed = true;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('อัปเดตสิ่งที่ชอบเรียบร้อยแล้ว')),
+        );
+      }
+    } on ApiException catch (e) {
+      debugPrint('❌ Profile: failed to update interests - $e');
+      final message = e.statusCode == 400
+          ? 'เลือกรายการไม่ถูกต้อง กรุณาลองใหม่'
+          : 'ไม่สามารถบันทึกสิ่งที่ชอบได้ (${e.statusCode})';
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (e, stackTrace) {
+      debugPrint('❌ Profile: unexpected error while saving interests - $e');
+      debugPrint('$stackTrace');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง')),
+        );
+      }
+    } finally {
+      if (!sheetClosed) {
+        onSavingChanged(false);
+      }
+      if (mounted) {
+        setState(() {
+          _isSavingInterests = false;
+        });
+      } else {
+        _isSavingInterests = false;
+      }
+    }
   }
 
   Future<String?> pickImageAndConvertToBase64() async {
@@ -913,6 +1634,10 @@ class _ProfilePageState extends State<ProfilePage> {
                             ],
                           ),
                           const SizedBox(height: 20),
+
+                          _buildInterestsCard(),
+
+                          const SizedBox(height: 10),
 
                           // Description Section Header with Edit Button
                           Padding(

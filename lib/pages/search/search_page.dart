@@ -3,10 +3,14 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:tutorium_frontend/service/api_client.dart' show ApiException;
+import 'package:tutorium_frontend/service/learners.dart' as learner_api;
 import 'package:tutorium_frontend/pages/widgets/class_session_service.dart';
 import 'package:tutorium_frontend/pages/widgets/schedule_card_search.dart';
 import 'package:tutorium_frontend/pages/widgets/search_service.dart';
 import 'package:tutorium_frontend/pages/widgets/skeleton_loading.dart';
+import 'package:tutorium_frontend/util/cache_user.dart';
+import 'package:tutorium_frontend/util/local_storage.dart';
 
 class _MaxValueTextInputFormatter extends TextInputFormatter {
   _MaxValueTextInputFormatter(this.maxValue);
@@ -61,6 +65,7 @@ class _SearchPageState extends State<SearchPage> {
   bool isLoading = false;
   bool _isLoadingRecommended = false;
   bool _isLoadingPopularToggle = false;
+  int? _cachedLearnerId;
   String currentQuery = "";
 
   List<String> selectedCategories = [];
@@ -259,114 +264,238 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  Future<void> _loadRecommendedSessions() async {
+  Future<int?> _resolveLearnerId({bool forceRefresh = false}) async {
+    if (!forceRefresh && _cachedLearnerId != null) {
+      return _cachedLearnerId;
+    }
+
+    try {
+      final cachedId = await LocalStorage.getLearnerId();
+      if (cachedId != null && cachedId > 0) {
+        _cachedLearnerId = cachedId;
+        return cachedId;
+      }
+    } catch (e) {
+      debugPrint('Search: unable to read cached learner ID - $e');
+    }
+
+    final cachedUser = UserCache().user;
+    final fallbackId = cachedUser?.learner?.id;
+    if (fallbackId != null && fallbackId > 0) {
+      _cachedLearnerId = fallbackId;
+      try {
+        await LocalStorage.saveLearnerId(fallbackId);
+      } catch (e) {
+        debugPrint('Search: unable to persist learner ID - $e');
+      }
+    }
+
+    return _cachedLearnerId;
+  }
+
+  Future<void> _loadRecommendedSessions({bool forceRefresh = false}) async {
     setState(() => _isLoadingRecommended = true);
 
     try {
-      final popularCandidates = await api.getPopularClasses(limit: 8);
-      if (popularCandidates.isEmpty) {
+      final learnerId = await _resolveLearnerId(forceRefresh: forceRefresh);
+      if (learnerId == null) {
+        debugPrint('Search: learner ID unavailable, falling back to popular');
+        await _loadRecommendedFallback(
+          reason: 'missing learner id',
+          forceRefresh: forceRefresh,
+        );
+        return;
+      }
+
+      final response =
+          await learner_api.LearnerInterestService.fetchRecommendations(
+        learnerId,
+      );
+      final sources = (response.recommendedFound &&
+              response.recommendedClasses.isNotEmpty)
+          ? response.recommendedClasses
+          : response.remainingClasses;
+
+      if (sources.isEmpty) {
+        await _loadRecommendedFallback(
+          reason: 'empty recommendation payload',
+          forceRefresh: forceRefresh,
+        );
+        return;
+      }
+
+      final recommendations = await _buildRecommendationCards(
+        sources.take(12).toList(growable: false),
+      );
+
+      if (!mounted) return;
+      setState(() => _recommendedClasses = recommendations);
+    } on ApiException catch (e) {
+      debugPrint(
+        'Search: recommendation API failed (${e.statusCode}). body=${e.body}',
+      );
+      await _loadRecommendedFallback(
+        reason: 'api ${e.statusCode}',
+        forceRefresh: forceRefresh,
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Search: recommendation pipeline crashed: $e');
+      debugPrint('$stackTrace');
+      await _loadRecommendedFallback(
+        reason: 'exception',
+        forceRefresh: forceRefresh,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingRecommended = false);
+      } else {
+        _isLoadingRecommended = false;
+      }
+    }
+  }
+
+  Future<void> _loadRecommendedFallback({
+    required String reason,
+    bool forceRefresh = false,
+  }) async {
+    debugPrint('Search: fallback to popular recommendations ($reason)');
+    try {
+      final popularCandidates = await api.getPopularClasses(
+        limit: 8,
+        forceRefresh: forceRefresh,
+      );
+      final mapped = popularCandidates
+          .map(_normalizeClassMap)
+          .whereType<Map<String, dynamic>>()
+          .toList(growable: false);
+
+      if (mapped.isEmpty) {
         if (!mounted) return;
         setState(() => _recommendedClasses = []);
         return;
       }
 
-      final now = DateTime.now();
-      final futures = popularCandidates.take(8).map((classData) async {
-        final dynamic idValue =
-            classData['id'] ?? classData['ID'] ?? classData['class_id'];
-        final classId = _asInt(idValue);
-        if (classId == null || classId == 0) {
-          return null;
-        }
-
-        try {
-          final sessions = await ClassSessionService.getSessionsByClass(
-            classId,
-          );
-          final upcomingSessions =
-              sessions
-                  .where((session) => session.classStart.isAfter(now))
-                  .toList()
-                ..sort((a, b) => a.classStart.compareTo(b.classStart));
-
-          if (upcomingSessions.isEmpty) {
-            return null;
-          }
-
-          final session = upcomingSessions.first;
-          final startLocal = session.classStart.toLocal();
-          final endLocal = session.classFinish.toLocal();
-
-          int? enrolledCount;
-          try {
-            final enrollments =
-                await ClassSessionService.getEnrollmentsBySession(session.id);
-            enrolledCount = enrollments.length;
-          } catch (e) {
-            debugPrint(
-              "Failed to fetch enrollments for session ${session.id}: $e",
-            );
-          }
-
-          final teacherRaw =
-              (classData['teacher_name'] ?? classData['teacherName'] ?? '')
-                  .toString()
-                  .trim();
-          final teacherName = teacherRaw.isEmpty
-              ? 'Unknown Teacher'
-              : teacherRaw;
-
-          final imageUrl =
-              (classData['banner_picture_url'] ??
-                      classData['banner_picture'] ??
-                      classData['imagePath'])
-                  ?.toString();
-
-          final rating = _asDouble(
-            classData['rating'] ?? classData['average_rating'],
-          );
-
-          return _RecommendedClass(
-            classId: classId,
-            sessionId: session.id,
-            className:
-                (classData['class_name'] ??
-                        classData['className'] ??
-                        'Unnamed Class')
-                    .toString(),
-            teacherName: teacherName,
-            date: startLocal,
-            startTime: TimeOfDay.fromDateTime(startLocal),
-            endTime: TimeOfDay.fromDateTime(endLocal),
-            imageUrl: imageUrl,
-            rating: rating,
-            enrolledLearner: enrolledCount,
-            learnerLimit: session.learnerLimit,
-          );
-        } catch (e) {
-          debugPrint('Failed to build recommendation for class $classId: $e');
-          return null;
-        }
-      });
-
-      final results = await Future.wait(futures);
-      final recommendations = results.whereType<_RecommendedClass>().toList(
-        growable: false,
-      )..sort((a, b) => a.date.compareTo(b.date));
-
+      final recommendations = await _buildRecommendationCards(mapped);
       if (!mounted) return;
-      setState(() {
-        _recommendedClasses = recommendations.take(5).toList(growable: false);
-      });
-    } catch (e) {
-      debugPrint('Error loading recommended sessions: $e');
+      setState(() => _recommendedClasses = recommendations);
+    } catch (e, stackTrace) {
+      debugPrint('Search: fallback recommendations failed: $e');
+      debugPrint('$stackTrace');
       if (!mounted) return;
       setState(() => _recommendedClasses = []);
-    } finally {
-      if (mounted) {
-        setState(() => _isLoadingRecommended = false);
-      }
     }
+  }
+
+  Future<List<_RecommendedClass>> _buildRecommendationCards(
+    List<Map<String, dynamic>> candidates,
+  ) async {
+    if (candidates.isEmpty) {
+      return const <_RecommendedClass>[];
+    }
+
+    final now = DateTime.now();
+    final futures = candidates.take(12).map(
+      (classData) => _buildRecommendationEntry(classData, now),
+    );
+
+    final results = await Future.wait(futures);
+    final recommendations = results.whereType<_RecommendedClass>().toList(
+          growable: false,
+        )
+      ..sort((a, b) => a.date.compareTo(b.date));
+    return recommendations.take(6).toList(growable: false);
+  }
+
+  Future<_RecommendedClass?> _buildRecommendationEntry(
+    Map<String, dynamic> classData,
+    DateTime now,
+  ) async {
+    final classId = _asInt(
+      classData['id'] ?? classData['ID'] ?? classData['class_id'],
+    );
+    if (classId == null || classId <= 0) {
+      return null;
+    }
+
+    try {
+      final sessions = await ClassSessionService.getSessionsByClass(classId);
+      final upcomingSessions =
+          sessions.where((session) => session.classStart.isAfter(now)).toList()
+            ..sort((a, b) => a.classStart.compareTo(b.classStart));
+
+      if (upcomingSessions.isEmpty) {
+        return null;
+      }
+
+      final session = upcomingSessions.first;
+      final startLocal = session.classStart.toLocal();
+      final endLocal = session.classFinish.toLocal();
+
+      int? enrolledCount;
+      try {
+        final enrollments =
+            await ClassSessionService.getEnrollmentsBySession(session.id);
+        enrolledCount = enrollments.length;
+      } catch (e) {
+        debugPrint(
+          'Search: failed to fetch enrollments for session ${session.id}: $e',
+        );
+      }
+
+      final teacherRaw =
+          (classData['teacher_name'] ?? classData['teacherName'] ?? '')
+              .toString()
+              .trim();
+      final teacherName = teacherRaw.isEmpty
+          ? 'Unknown Teacher'
+          : teacherRaw;
+
+      final imageUrl =
+          (classData['banner_picture_url'] ??
+                  classData['banner_picture'] ??
+                  classData['imagePath'])
+              ?.toString();
+
+      final rating = _asDouble(
+        classData['rating'] ?? classData['average_rating'],
+      );
+
+      return _RecommendedClass(
+        classId: classId,
+        sessionId: session.id,
+        className:
+            (classData['class_name'] ??
+                    classData['className'] ??
+                    'Unnamed Class')
+                .toString(),
+        teacherName: teacherName,
+        date: startLocal,
+        startTime: TimeOfDay.fromDateTime(startLocal),
+        endTime: TimeOfDay.fromDateTime(endLocal),
+        imageUrl: imageUrl,
+        rating: rating,
+        enrolledLearner: enrolledCount,
+        learnerLimit: session.learnerLimit,
+      );
+    } catch (e, stackTrace) {
+      debugPrint(
+        'Search: failed to build recommendation for class $classId: $e',
+      );
+      debugPrint('$stackTrace');
+      return null;
+    }
+  }
+
+  Map<String, dynamic>? _normalizeClassMap(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      return Map<String, dynamic>.from(value);
+    }
+    if (value is Map) {
+      return value.map(
+        (key, dynamic val) => MapEntry(key.toString(), val),
+      );
+    }
+    return null;
   }
 
   int? _asInt(dynamic value) {
@@ -783,7 +912,7 @@ class _SearchPageState extends State<SearchPage> {
     await _loadPopularClasses(forceRefresh: true);
 
     // Force refresh recommended sessions
-    await _loadRecommendedSessions();
+    await _loadRecommendedSessions(forceRefresh: true);
 
     // If there's a current search/filter, re-run it
     if (currentQuery.isNotEmpty || isFilterActive) {
