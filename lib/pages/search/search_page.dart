@@ -1416,16 +1416,17 @@ class SearchDataProvider extends InheritedNotifier<SearchDataStore> {
 
 class _RecommendedClass {
   final int classId;
-  final int sessionId;
+  final int? sessionId;
   final String className;
   final String teacherName;
-  final DateTime date;
-  final TimeOfDay startTime;
-  final TimeOfDay endTime;
+  final DateTime? date;
+  final TimeOfDay? startTime;
+  final TimeOfDay? endTime;
   final String? imageUrl;
   final double rating;
   final int? enrolledLearner;
   final int? learnerLimit;
+  final bool hasUpcomingSession;
 
   const _RecommendedClass({
     required this.classId,
@@ -1439,6 +1440,7 @@ class _RecommendedClass {
     required this.rating,
     this.enrolledLearner,
     this.learnerLimit,
+    required this.hasUpcomingSession,
   });
 }
 

@@ -244,8 +244,9 @@ class _LearnPageState extends State<LearnPage>
       return false;
     }
 
-    final normalizedStatus =
-        ClassReadinessService.normalizeStatus(session.classStatus);
+    final normalizedStatus = ClassReadinessService.normalizeStatus(
+      session.classStatus,
+    );
     debugPrint(
       '🧭 Session status check: raw=${session.classStatus}, normalized=$normalizedStatus',
     );
@@ -286,7 +287,9 @@ class _LearnPageState extends State<LearnPage>
   }
 
   Future<class_sessions.ClassSession?> _refreshSessionStatus() async {
-    debugPrint('🔄 Refreshing class session ${widget.classSessionId} status...');
+    debugPrint(
+      '🔄 Refreshing class session ${widget.classSessionId} status...',
+    );
     try {
       final session = await class_sessions.ClassSession.fetchById(
         widget.classSessionId,
