@@ -642,14 +642,22 @@ class _SearchPageState extends State<SearchPage> {
     return categories;
   }
 
+  String _normalizeCategoryName(String category) {
+    final lower = category.trim().toLowerCase();
+    if (lower == 'art') {
+      return 'art';
+    }
+    return lower;
+  }
+
   List<dynamic> _applyActiveFilters(List<dynamic> classes) {
     if (!isFilterActive) {
       return List<dynamic>.from(classes);
     }
 
     final activeCategories = _categoryFilters
-        .map((c) => c.toLowerCase())
-        .toList(growable: false);
+        .map(_normalizeCategoryName)
+        .toSet();
     final localMinRating = minRating;
     final localMaxRating = maxRating;
 
@@ -671,9 +679,10 @@ class _SearchPageState extends State<SearchPage> {
           if (activeCategories.isNotEmpty) {
             final classCategories = _extractCategoryNames(
               item,
-            ).map((c) => c.toLowerCase()).toSet();
+            ).map(_normalizeCategoryName).toSet();
             if (classCategories.isEmpty) {
-              return false;
+              // Backend already applied category filter; accept entries even if category metadata is absent.
+              return true;
             }
 
             final hasMatch = activeCategories.any(classCategories.contains);
@@ -773,7 +782,7 @@ class _SearchPageState extends State<SearchPage> {
       'Language',
       'History',
       'Technology',
-      'Arts',
+      'Art',
     ];
 
     final minRatingController = TextEditingController(
