@@ -157,7 +157,8 @@ class _SearchPageState extends State<SearchPage> {
     final cachedClasses = _dataStore.allClasses;
     if (cachedClasses != null && cachedClasses.isNotEmpty) {
       _allClasses = List<dynamic>.from(cachedClasses);
-      _filteredClasses = api.searchLocal(cachedClasses, currentQuery);
+      final localResults = api.searchLocal(cachedClasses, currentQuery);
+      _filteredClasses = _normalizeClassCollection(localResults);
     }
 
     final cachedTop = _dataStore.popularTop;
@@ -182,7 +183,8 @@ class _SearchPageState extends State<SearchPage> {
       if (!mounted) return;
       setState(() {
         _allClasses = List<dynamic>.from(cached);
-        _filteredClasses = api.searchLocal(cached, currentQuery);
+        final localResults = api.searchLocal(cached, currentQuery);
+        _filteredClasses = _normalizeClassCollection(localResults);
       });
       return;
     }
@@ -194,7 +196,8 @@ class _SearchPageState extends State<SearchPage> {
       if (!mounted) return;
       setState(() {
         _allClasses = List<dynamic>.from(data);
-        _filteredClasses = api.searchLocal(data, currentQuery);
+        final localResults = api.searchLocal(data, currentQuery);
+        _filteredClasses = _normalizeClassCollection(localResults);
       });
     } catch (_) {
       if (!mounted) return;
@@ -629,7 +632,8 @@ class _SearchPageState extends State<SearchPage> {
       }
 
       if (rawVal is Map) {
-        result[key] = rawVal.map((k, dynamic v) => MapEntry(k.toString(), v));
+        result[key] =
+            rawVal.map((dynamic k, dynamic v) => MapEntry(k.toString(), v));
         return;
       }
 
@@ -645,7 +649,38 @@ class _SearchPageState extends State<SearchPage> {
       result[key] = rawVal;
     });
 
+    final resolvedId = _resolveClassIdValue(result);
+    if (resolvedId > 0) {
+      result['id'] = resolvedId;
+      result['class_id'] ??= resolvedId;
+    }
+    final teacherName = _resolveTeacherName(result);
+    if (teacherName != null && teacherName.isNotEmpty) {
+      result['teacher_name'] ??= teacherName;
+    }
+
     return result;
+  }
+
+  List<Map<String, dynamic>> _normalizeClassCollection(
+    Iterable<dynamic> source,
+  ) {
+    final normalized = <Map<String, dynamic>>[];
+    for (final item in source) {
+      Map<String, dynamic>? converted;
+      if (item is Map<String, dynamic>) {
+        converted = _normalizeClassMap(item) ??
+            Map<String, dynamic>.from(item);
+      } else if (item is Map) {
+        final map =
+            item.map((dynamic k, dynamic v) => MapEntry(k.toString(), v));
+        converted = _normalizeClassMap(map) ?? Map<String, dynamic>.from(map);
+      }
+      if (converted != null && converted.isNotEmpty) {
+        normalized.add(converted);
+      }
+    }
+    return normalized;
   }
 
   String? _resolveTeacherName(Map<String, dynamic> classData) {
@@ -807,6 +842,68 @@ class _SearchPageState extends State<SearchPage> {
           return resolved;
         }
         break;
+      }
+    }
+    return null;
+  }
+
+  int _resolveClassIdValue(dynamic item) {
+    return _resolveClassIdRecursive(item, <int>{}, classContext: true) ?? 0;
+  }
+
+  int? _resolveClassIdRecursive(
+    dynamic node,
+    Set<int> visited, {
+    required bool classContext,
+  }) {
+    if (node is Map) {
+      final map = node as Map<dynamic, dynamic>;
+      final identity = identityHashCode(map);
+      if (!visited.add(identity)) return null;
+
+      final directClassId = _firstNonNullInt(map, [
+        'class_id',
+        'classid',
+        'classinfoid',
+        'course_id',
+        'courseid',
+      ]);
+      if (directClassId != null) {
+        return directClassId;
+      }
+
+      if (classContext) {
+        final contextualId = _firstNonNullInt(map, ['id']);
+        if (contextualId != null) {
+          return contextualId;
+        }
+      }
+
+      for (final entry in map.entries) {
+        final keyLower = entry.key.toString().toLowerCase();
+        final nextContext =
+            classContext ||
+            keyLower.contains('class') ||
+            keyLower.contains('course');
+        final result = _resolveClassIdRecursive(
+          entry.value,
+          visited,
+          classContext: nextContext,
+        );
+        if (result != null) {
+          return result;
+        }
+      }
+    } else if (node is List) {
+      for (final element in node) {
+        final result = _resolveClassIdRecursive(
+          element,
+          visited,
+          classContext: classContext,
+        );
+        if (result != null) {
+          return result;
+        }
       }
     }
     return null;
@@ -1005,8 +1102,9 @@ class _SearchPageState extends State<SearchPage> {
     }
 
     if (!isFilterActive) {
+      final localResults = api.searchLocal(_allClasses, normalizedQuery);
       setState(() {
-        _filteredClasses = api.searchLocal(_allClasses, normalizedQuery);
+        _filteredClasses = _normalizeClassCollection(localResults);
       });
       return;
     }
@@ -1022,7 +1120,9 @@ class _SearchPageState extends State<SearchPage> {
 
       final filteredData = _applyActiveFilters(data);
       final searched = api.searchLocal(filteredData, normalizedQuery);
-      setState(() => _filteredClasses = searched);
+      setState(
+        () => _filteredClasses = _normalizeClassCollection(searched),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -1061,7 +1161,8 @@ class _SearchPageState extends State<SearchPage> {
       _updateViewState();
 
       if (_showHomeView) {
-        _filteredClasses = api.searchLocal(_allClasses, "");
+        final homeResults = api.searchLocal(_allClasses, "");
+        _filteredClasses = _normalizeClassCollection(homeResults);
       }
     });
 
@@ -1080,7 +1181,7 @@ class _SearchPageState extends State<SearchPage> {
       'Science',
       'Language',
       'History',
-      'Technology',
+      'Programming',
       'Art',
     ];
 
@@ -1456,8 +1557,9 @@ class _SearchPageState extends State<SearchPage> {
                               itemCount: _filteredClasses.length,
                               itemBuilder: (context, index) {
                                 final item = _filteredClasses[index];
+                                final classId = _resolveClassIdValue(item);
                                 return ScheduleCardSearch(
-                                  classId: item['id'] ?? item['classId'] ?? 0,
+                                  classId: classId,
                                   className:
                                       item['class_name'] ??
                                       item['className'] ??
@@ -1631,15 +1733,15 @@ class _SearchPageState extends State<SearchPage> {
                                       itemCount: _popularClasses.length,
                                       itemBuilder: (context, index) {
                                         final item = _popularClasses[index];
+                                        final classId = _resolveClassIdValue(
+                                          item,
+                                        );
                                         return Padding(
                                           padding: const EdgeInsets.only(
                                             right: 12,
                                           ),
                                           child: ScheduleCardSearch(
-                                            classId:
-                                                item['id'] ??
-                                                item['classId'] ??
-                                                0,
+                                            classId: classId,
                                             className:
                                                 item['class_name'] ??
                                                 'Unnamed Class',

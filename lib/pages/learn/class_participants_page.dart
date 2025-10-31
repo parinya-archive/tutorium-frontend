@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:tutorium_frontend/service/enrollments.dart';
+import 'package:tutorium_frontend/service/learners.dart' as learners_service;
 import 'package:tutorium_frontend/pages/widgets/report_dialog.dart';
 import 'package:tutorium_frontend/util/local_storage.dart';
 
@@ -72,12 +73,39 @@ class _ClassParticipantsPageState extends State<ClassParticipantsPage> {
 
     if (!mounted) return;
 
+    learners_service.Learner learner;
+    try {
+      learner = await learners_service.Learner.fetchById(learnerId);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('ไม่สามารถดึงข้อมูลผู้เรียนได้: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
+    final reportedUserId = learner.userId;
+    if (reportedUserId == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ไม่พบข้อมูลบัญชีผู้เรียนสำหรับการรายงาน'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (context) => ReportDialog(
         classSessionId: widget.classSessionId,
         reportUserId: userId,
-        reportedUserId: learnerId,
+        reportedUserId: reportedUserId,
         reportedUserName: learnerName,
         onReportSubmitted: () {
           _loadParticipants();
