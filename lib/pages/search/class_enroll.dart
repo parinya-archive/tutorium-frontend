@@ -454,6 +454,34 @@ class _ClassEnrollPageState extends State<ClassEnrollPage> {
     return "$hour:$minute $ampm";
   }
 
+  String? _enrollmentClosureReason(class_models.ClassSession session) {
+    final nowUtc = DateTime.now().toUtc();
+    final deadlineUtc = session.enrollmentDeadline.toUtc();
+    if (!nowUtc.isBefore(deadlineUtc)) {
+      return 'deadline passed (${deadlineUtc.toIso8601String()})';
+    }
+
+    final finishUtc = session.classFinish.toUtc();
+    if (!nowUtc.isBefore(finishUtc)) {
+      return 'session finished (${finishUtc.toIso8601String()})';
+    }
+
+    final status = session.classStatus.toLowerCase();
+    const closedStatuses = {
+      'finished',
+      'complete',
+      'completed',
+      'cancelled',
+      'canceled',
+      'closed',
+    };
+    if (closedStatuses.contains(status)) {
+      return 'status=${session.classStatus}';
+    }
+
+    return null;
+  }
+
   void _showSnackMessage(String message, {Color? backgroundColor}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -481,19 +509,24 @@ class _ClassEnrollPageState extends State<ClassEnrollPage> {
             final enrolledCount = enrollmentCounts[session.id] ?? 0;
             final limit = session.learnerLimit > 20 ? 20 : session.learnerLimit;
             final isFull = enrolledCount >= limit;
+            final closureReason = _enrollmentClosureReason(session);
+            final isClosed = closureReason != null;
             final statusText = isFull
                 ? ' 🔴 เต็มแล้ว!'
-                : ' ($enrolledCount/$limit คน)';
+                : isClosed
+                    ? ' ⏳ ปิดรับสมัคร'
+                    : ' ($enrolledCount/$limit คน)';
 
             return DropdownMenuItem(
               value: session,
-              enabled: !isFull,
+              enabled: !isFull && !isClosed,
               child: Text(
                 '$dateStr • $timeStr • \$${session.price.toStringAsFixed(2)}$statusText',
                 style: TextStyle(
                   fontSize: 14,
-                  color: isFull ? Colors.red : Colors.black,
-                  fontWeight: isFull ? FontWeight.bold : FontWeight.normal,
+                  color: isFull || isClosed ? Colors.red : Colors.black,
+                  fontWeight:
+                      isFull || isClosed ? FontWeight.bold : FontWeight.normal,
                 ),
               ),
             );
@@ -743,6 +776,15 @@ class _ClassEnrollPageState extends State<ClassEnrollPage> {
     final session = selectedSession!;
     final currentUser = userInfo;
 
+    final closureReason = _enrollmentClosureReason(session);
+    if (closureReason != null) {
+      debugPrint('🛑 Enrollment blocked for session ${session.id}: '
+          '$closureReason');
+      _showSnackMessage('ไม่สามารถลงทะเบียนได้ คลาสปิดรับสมัครแล้ว.',
+          backgroundColor: Colors.red);
+      return;
+    }
+
     if (currentUser != null && classInfo != null) {
       try {
         final userId = await LocalStorage.getUserId();
@@ -977,6 +1019,13 @@ class _ClassEnrollPageState extends State<ClassEnrollPage> {
     if (!mounted) return;
 
     final hasEnoughBalance = currentUser.balance >= selectedSession!.price;
+    final closureReason = _enrollmentClosureReason(selectedSession!);
+    if (closureReason != null) {
+      debugPrint('🛑 Enrollment dialog blocked for session '
+          '${selectedSession!.id}: $closureReason');
+      _showSnackMessage('คลาสปิดรับสมัครแล้ว', backgroundColor: Colors.red);
+      return;
+    }
 
     showDialog(
       context: context,

@@ -16,6 +16,9 @@ class ScheduleCardSearch extends StatelessWidget {
   final String fallbackAsset;
   final double rating;
   final bool showSchedule;
+  final bool? isEnrollmentClosed;
+  final bool? isFullyBooked;
+  final bool showOccupancyDetails;
 
   const ScheduleCardSearch({
     super.key,
@@ -31,6 +34,9 @@ class ScheduleCardSearch extends StatelessWidget {
     this.fallbackAsset = 'assets/images/default.jpg',
     this.showSchedule = true,
     required this.rating,
+    this.isEnrollmentClosed,
+    this.isFullyBooked,
+    this.showOccupancyDetails = true,
   });
 
   String formatTime24(TimeOfDay time) {
@@ -42,8 +48,10 @@ class ScheduleCardSearch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Show enrollment info only if data is available
-    final showEnrollmentInfo =
-        enrolledLearner != null && learnerLimit != null && learnerLimit! > 0;
+    final showEnrollmentInfo = showOccupancyDetails &&
+        enrolledLearner != null &&
+        learnerLimit != null &&
+        learnerLimit! > 0;
 
     Widget buildImage() {
       final path = imageUrl;
@@ -76,9 +84,9 @@ class ScheduleCardSearch extends StatelessWidget {
 
     // คำนวณเปอร์เซ็นต์ที่จองแล้ว (only if data available)
     final enrollmentPercentage =
-        (showEnrollmentInfo && learnerLimit != null && learnerLimit! > 0)
-        ? ((enrolledLearner! / learnerLimit!) * 100).clamp(0, 100)
-        : 0.0;
+        showEnrollmentInfo && learnerLimit != null && learnerLimit! > 0
+            ? ((enrolledLearner! / learnerLimit!) * 100).clamp(0, 100)
+            : 0.0;
 
     // คำนวณที่เหลือ
     final seatsRemaining = showEnrollmentInfo
@@ -86,26 +94,51 @@ class ScheduleCardSearch extends StatelessWidget {
         : 0;
 
     // กำหนดสีและข้อความตามสถานะ
-    final bool isAlmostFull = showEnrollmentInfo && enrollmentPercentage >= 80;
-    final bool isFull = showEnrollmentInfo && enrolledLearner! >= learnerLimit!;
+    final bool resolvedIsClosed =
+        showOccupancyDetails && (isEnrollmentClosed ?? false);
+    final bool derivedIsFull = showEnrollmentInfo && learnerLimit != null
+        ? enrolledLearner! >= learnerLimit!
+        : false;
+    final bool resolvedIsFull = showOccupancyDetails
+        ? (isFullyBooked ?? derivedIsFull)
+        : false;
+    final bool isAlmostFull = showOccupancyDetails &&
+        !resolvedIsClosed &&
+        !resolvedIsFull &&
+        showEnrollmentInfo &&
+        enrollmentPercentage >= 80;
 
-    Color progressColor;
-    String statusText;
-    Color statusColor;
+    Color progressColor = Colors.green;
+    String statusText = '';
+    Color statusColor = Colors.green;
+    IconData? statusIcon;
 
-    if (isFull) {
-      progressColor = Colors.red;
-      statusText = 'เต็มแล้ว!';
-      statusColor = Colors.red;
-    } else if (isAlmostFull) {
-      progressColor = Colors.orange;
-      statusText = 'เหลือที่น้อย!';
-      statusColor = Colors.orange;
-    } else {
-      progressColor = Colors.green;
-      statusText = '';
-      statusColor = Colors.green;
+    if (showOccupancyDetails) {
+      if (resolvedIsClosed) {
+        progressColor = Colors.grey;
+        statusText = 'ปิดรับสมัคร';
+        statusColor = Colors.black87;
+        statusIcon = Icons.do_not_disturb_on;
+      } else if (resolvedIsFull) {
+        progressColor = Colors.red;
+        statusText = 'เต็มแล้ว!';
+        statusColor = Colors.red;
+        statusIcon = Icons.block;
+      } else if (isAlmostFull) {
+        progressColor = Colors.orange;
+        statusText = 'เหลือที่น้อย!';
+        statusColor = Colors.orange;
+        statusIcon = Icons.local_fire_department;
+      }
     }
+
+    final bool showStatusBadge =
+        showOccupancyDetails && statusText.isNotEmpty;
+    final Color occupancyColor =
+        resolvedIsClosed ? Colors.grey : progressColor;
+
+    final bool tintImage =
+        showOccupancyDetails && (resolvedIsClosed || resolvedIsFull);
 
     return SizedBox(
       width: 180,
@@ -142,8 +175,16 @@ class ScheduleCardSearch extends StatelessWidget {
                     width: double.infinity,
                     child: buildImage(),
                   ),
+                  if (tintImage)
+                    Positioned.fill(
+                      child: Container(
+                        color: resolvedIsClosed
+                            ? Colors.black.withOpacity(0.35)
+                            : Colors.black.withOpacity(0.2),
+                      ),
+                    ),
                   // ป้ายแจ้งเตือน
-                  if (statusText.isNotEmpty)
+                  if (showStatusBadge)
                     Positioned(
                       top: 8,
                       right: 8,
@@ -166,14 +207,10 @@ class ScheduleCardSearch extends StatelessWidget {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
-                              isFull
-                                  ? Icons.block
-                                  : Icons.local_fire_department,
-                              color: Colors.white,
-                              size: 14,
-                            ),
-                            const SizedBox(width: 4),
+                            if (statusIcon != null) ...[
+                              Icon(statusIcon, color: Colors.white, size: 14),
+                              const SizedBox(width: 4),
+                            ],
                             Text(
                               statusText,
                               style: const TextStyle(
@@ -275,11 +312,11 @@ class ScheduleCardSearch extends StatelessWidget {
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
-                                color: progressColor,
+                                color: occupancyColor,
                               ),
                             ),
                             const Spacer(),
-                            if (!isFull)
+                            if (!resolvedIsClosed && !resolvedIsFull)
                               Flexible(
                                 child: Text(
                                   'เหลือ $seatsRemaining ที่',

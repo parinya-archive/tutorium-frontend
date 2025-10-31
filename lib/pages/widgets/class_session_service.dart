@@ -121,6 +121,8 @@ class UserInfo {
 
 class ClassSessionService {
   static const Duration _requestTimeout = Duration(seconds: 12);
+  static final Map<int, String> _teacherNameCache = {};
+  static final Map<int, Future<String?>> _teacherNameRequests = {};
 
   String get _baseUrl => _resolveBaseUrl();
 
@@ -522,6 +524,87 @@ class ClassSessionService {
       throw Exception('Unexpected response format');
     }
   }
+
+  static Future<String?> fetchTeacherDisplayName(int teacherId) async {
+    if (teacherId <= 0) return null;
+
+    final cached = _teacherNameCache[teacherId];
+    if (cached != null && cached.isNotEmpty) {
+      return cached;
+    }
+
+    final inFlight = _teacherNameRequests[teacherId];
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final future = () async {
+      final baseUrl = _resolveBaseUrl();
+      try {
+        final teacherUrl = Uri.parse('$baseUrl/teachers/$teacherId');
+        final teacherResponse = await _sendWithTimeout(
+          () => http.get(teacherUrl),
+          teacherUrl,
+          'GET',
+        );
+        if (teacherResponse.statusCode != 200) {
+          debugPrint(
+            'ClassSessionService: teacher $teacherId fetch failed '
+            '(${teacherResponse.statusCode})',
+          );
+          return null;
+        }
+
+        final teacherData =
+            json.decode(teacherResponse.body) as Map<String, dynamic>;
+        final directName = _extractTeacherName(teacherData);
+        if (directName != null) {
+          _teacherNameCache[teacherId] = directName;
+          return directName;
+        }
+
+        final userId = _parseInt(teacherData['user_id']);
+        if (userId == null || userId <= 0) {
+          return null;
+        }
+
+        final userUrl = Uri.parse('$baseUrl/users/$userId');
+        final userResponse = await _sendWithTimeout(
+          () => http.get(userUrl),
+          userUrl,
+          'GET',
+        );
+        if (userResponse.statusCode != 200) {
+          debugPrint(
+            'ClassSessionService: user $userId fetch failed for teacher '
+            '$teacherId (${userResponse.statusCode})',
+          );
+          return null;
+        }
+
+        final userData =
+            json.decode(userResponse.body) as Map<String, dynamic>;
+        final resolved = _combineNameParts(
+          userData['first_name'],
+          userData['last_name'],
+        );
+        if (resolved != null) {
+          _teacherNameCache[teacherId] = resolved;
+        }
+        return resolved;
+      } catch (error) {
+        debugPrint(
+          'ClassSessionService: error resolving teacher $teacherId: $error',
+        );
+        return null;
+      } finally {
+        _teacherNameRequests.remove(teacherId);
+      }
+    }();
+
+    _teacherNameRequests[teacherId] = future;
+    return future;
+  }
 }
 
 double _parseBalance(dynamic value) {
@@ -532,6 +615,61 @@ double _parseBalance(dynamic value) {
     return double.tryParse(value) ?? 0.0;
   }
   return 0.0;
+}
+
+String? _extractTeacherName(Map<String, dynamic> json) {
+  final candidates = [
+    json['full_name'],
+    json['fullName'],
+    json['display_name'],
+    json['displayName'],
+    json['name'],
+    json['teacher_name'],
+    json['teacherName'],
+  ];
+  for (final candidate in candidates) {
+    final resolved = _asNonEmptyString(candidate);
+    if (resolved != null) {
+      return resolved;
+    }
+  }
+
+  final first = _asNonEmptyString(
+    json['first_name'] ?? json['teacher_first_name'],
+  );
+  final last = _asNonEmptyString(
+    json['last_name'] ?? json['teacher_last_name'],
+  );
+  return _combineNameParts(first, last);
+}
+
+String? _combineNameParts(
+  dynamic firstRaw,
+  dynamic lastRaw,
+) {
+  final first = _asNonEmptyString(firstRaw);
+  final last = _asNonEmptyString(lastRaw);
+  if ((first == null || first.isEmpty) && (last == null || last.isEmpty)) {
+    return null;
+  }
+  final buffer = StringBuffer();
+  if (first != null && first.isNotEmpty) {
+    buffer.write(first);
+  }
+  if (last != null && last.isNotEmpty) {
+    if (buffer.isNotEmpty) buffer.write(' ');
+    buffer.write(last);
+  }
+  final combined = buffer.toString().trim();
+  return combined.isEmpty ? null : combined;
+}
+
+String? _asNonEmptyString(dynamic value) {
+  if (value is String) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+  return null;
 }
 
 int? _parseInt(dynamic value) {
