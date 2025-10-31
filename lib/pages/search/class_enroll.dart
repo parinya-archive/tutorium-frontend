@@ -514,8 +514,8 @@ class _ClassEnrollPageState extends State<ClassEnrollPage> {
             final statusText = isFull
                 ? ' 🔴 เต็มแล้ว!'
                 : isClosed
-                    ? ' ⏳ ปิดรับสมัคร'
-                    : ' ($enrolledCount/$limit คน)';
+                ? ' ⏳ ปิดรับสมัคร'
+                : ' ($enrolledCount/$limit คน)';
 
             return DropdownMenuItem(
               value: session,
@@ -525,8 +525,9 @@ class _ClassEnrollPageState extends State<ClassEnrollPage> {
                 style: TextStyle(
                   fontSize: 14,
                   color: isFull || isClosed ? Colors.red : Colors.black,
-                  fontWeight:
-                      isFull || isClosed ? FontWeight.bold : FontWeight.normal,
+                  fontWeight: isFull || isClosed
+                      ? FontWeight.bold
+                      : FontWeight.normal,
                 ),
               ),
             );
@@ -778,10 +779,14 @@ class _ClassEnrollPageState extends State<ClassEnrollPage> {
 
     final closureReason = _enrollmentClosureReason(session);
     if (closureReason != null) {
-      debugPrint('🛑 Enrollment blocked for session ${session.id}: '
-          '$closureReason');
-      _showSnackMessage('ไม่สามารถลงทะเบียนได้ คลาสปิดรับสมัครแล้ว.',
-          backgroundColor: Colors.red);
+      debugPrint(
+        '🛑 Enrollment blocked for session ${session.id}: '
+        '$closureReason',
+      );
+      _showSnackMessage(
+        'ไม่สามารถลงทะเบียนได้ คลาสปิดรับสมัครแล้ว.',
+        backgroundColor: Colors.red,
+      );
       return;
     }
 
@@ -1021,8 +1026,10 @@ class _ClassEnrollPageState extends State<ClassEnrollPage> {
     final hasEnoughBalance = currentUser.balance >= selectedSession!.price;
     final closureReason = _enrollmentClosureReason(selectedSession!);
     if (closureReason != null) {
-      debugPrint('🛑 Enrollment dialog blocked for session '
-          '${selectedSession!.id}: $closureReason');
+      debugPrint(
+        '🛑 Enrollment dialog blocked for session '
+        '${selectedSession!.id}: $closureReason',
+      );
       _showSnackMessage('คลาสปิดรับสมัครแล้ว', backgroundColor: Colors.red);
       return;
     }

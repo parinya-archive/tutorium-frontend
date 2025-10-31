@@ -48,7 +48,8 @@ class ScheduleCardSearch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Show enrollment info only if data is available
-    final showEnrollmentInfo = showOccupancyDetails &&
+    final showEnrollmentInfo =
+        showOccupancyDetails &&
         enrolledLearner != null &&
         learnerLimit != null &&
         learnerLimit! > 0;
@@ -85,8 +86,8 @@ class ScheduleCardSearch extends StatelessWidget {
     // คำนวณเปอร์เซ็นต์ที่จองแล้ว (only if data available)
     final enrollmentPercentage =
         showEnrollmentInfo && learnerLimit != null && learnerLimit! > 0
-            ? ((enrolledLearner! / learnerLimit!) * 100).clamp(0, 100)
-            : 0.0;
+        ? ((enrolledLearner! / learnerLimit!) * 100).clamp(0, 100)
+        : 0.0;
 
     // คำนวณที่เหลือ
     final seatsRemaining = showEnrollmentInfo
@@ -102,7 +103,8 @@ class ScheduleCardSearch extends StatelessWidget {
     final bool resolvedIsFull = showOccupancyDetails
         ? (isFullyBooked ?? derivedIsFull)
         : false;
-    final bool isAlmostFull = showOccupancyDetails &&
+    final bool isAlmostFull =
+        showOccupancyDetails &&
         !resolvedIsClosed &&
         !resolvedIsFull &&
         showEnrollmentInfo &&
@@ -132,10 +134,8 @@ class ScheduleCardSearch extends StatelessWidget {
       }
     }
 
-    final bool showStatusBadge =
-        showOccupancyDetails && statusText.isNotEmpty;
-    final Color occupancyColor =
-        resolvedIsClosed ? Colors.grey : progressColor;
+    final bool showStatusBadge = showOccupancyDetails && statusText.isNotEmpty;
+    final Color occupancyColor = resolvedIsClosed ? Colors.grey : progressColor;
 
     final bool tintImage =
         showOccupancyDetails && (resolvedIsClosed || resolvedIsFull);

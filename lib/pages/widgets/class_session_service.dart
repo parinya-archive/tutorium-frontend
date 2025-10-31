@@ -582,8 +582,7 @@ class ClassSessionService {
           return null;
         }
 
-        final userData =
-            json.decode(userResponse.body) as Map<String, dynamic>;
+        final userData = json.decode(userResponse.body) as Map<String, dynamic>;
         final resolved = _combineNameParts(
           userData['first_name'],
           userData['last_name'],
@@ -643,10 +642,7 @@ String? _extractTeacherName(Map<String, dynamic> json) {
   return _combineNameParts(first, last);
 }
 
-String? _combineNameParts(
-  dynamic firstRaw,
-  dynamic lastRaw,
-) {
+String? _combineNameParts(dynamic firstRaw, dynamic lastRaw) {
   final first = _asNonEmptyString(firstRaw);
   final last = _asNonEmptyString(lastRaw);
   if ((first == null || first.isEmpty) && (last == null || last.isEmpty)) {

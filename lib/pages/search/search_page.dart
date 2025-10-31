@@ -3,8 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:tutorium_frontend/models/class_models.dart'
-    as class_models;
+import 'package:tutorium_frontend/models/class_models.dart' as class_models;
 import 'package:tutorium_frontend/service/api_client.dart' show ApiException;
 import 'package:tutorium_frontend/service/learners.dart' as learner_api;
 import 'package:tutorium_frontend/pages/widgets/class_session_service.dart';
@@ -487,11 +486,11 @@ class _SearchPageState extends State<SearchPage> {
           .where((session) => _isSessionEnrollmentOpen(session, now))
           .toList();
 
-      final class_models.ClassSession displaySession =
-          openSessions.isNotEmpty ? openSessions.first : futureSessions.first;
+      final class_models.ClassSession displaySession = openSessions.isNotEmpty
+          ? openSessions.first
+          : futureSessions.first;
       final bool hasUpcomingSession = openSessions.isNotEmpty;
-      final String? closureReason =
-          _sessionClosureReason(displaySession, now);
+      final String? closureReason = _sessionClosureReason(displaySession, now);
 
       if (closureReason != null) {
         debugPrint(
@@ -509,13 +508,14 @@ class _SearchPageState extends State<SearchPage> {
         final enrollments = await ClassSessionService.getEnrollmentsBySession(
           displaySession.id,
         );
-        final activeEnrollments = enrollments.where((enrollment) {
-          final status =
-              (enrollment['enrollment_status'] ?? '')
+        final activeEnrollments = enrollments
+            .where((enrollment) {
+              final status = (enrollment['enrollment_status'] ?? '')
                   .toString()
                   .toLowerCase();
-          return status == 'active';
-        }).toList(growable: false);
+              return status == 'active';
+            })
+            .toList(growable: false);
         enrolledCount = activeEnrollments.length;
         if (displaySession.learnerLimit > 0) {
           isFull = enrolledCount >= displaySession.learnerLimit;
@@ -533,8 +533,7 @@ class _SearchPageState extends State<SearchPage> {
           teacherId == null ||
           teacherId <= 0) {
         try {
-          final classInfo =
-              await ClassSessionService().fetchClassInfo(classId);
+          final classInfo = await ClassSessionService().fetchClassInfo(classId);
           final fetchedName = classInfo.teacherName.trim();
           if (teacherName == null || teacherName.isEmpty) {
             if (fetchedName.isNotEmpty) {
@@ -547,9 +546,7 @@ class _SearchPageState extends State<SearchPage> {
             }
           }
         } catch (e) {
-          debugPrint(
-            'Search: unable to fetch teacher for class $classId: $e',
-          );
+          debugPrint('Search: unable to fetch teacher for class $classId: $e');
         }
       }
       if ((teacherName == null || teacherName.isEmpty) &&
@@ -568,10 +565,9 @@ class _SearchPageState extends State<SearchPage> {
           );
         }
       }
-      final resolvedTeacherName =
-          (teacherName == null || teacherName.isEmpty)
-              ? 'Unknown Teacher'
-              : teacherName;
+      final resolvedTeacherName = (teacherName == null || teacherName.isEmpty)
+          ? 'Unknown Teacher'
+          : teacherName;
 
       final imageUrl =
           (classData['banner_picture_url'] ??
@@ -655,10 +651,7 @@ class _SearchPageState extends State<SearchPage> {
   String? _resolveTeacherName(Map<String, dynamic> classData) {
     final visited = <int>{};
 
-    String? traverse(
-      dynamic node, {
-      bool teacherContext = false,
-    }) {
+    String? traverse(dynamic node, {bool teacherContext = false}) {
       if (node is Map<String, dynamic>) {
         final identity = identityHashCode(node);
         if (!visited.add(identity)) return null;
@@ -715,7 +708,8 @@ class _SearchPageState extends State<SearchPage> {
           final key = entry.key.toString();
           final value = entry.value;
           final lowerKey = key.toLowerCase();
-          final nextContext = teacherContext ||
+          final nextContext =
+              teacherContext ||
               lowerKey.contains('teacher') ||
               lowerKey.contains('instructor') ||
               lowerKey.contains('tutor') ||
@@ -735,10 +729,7 @@ class _SearchPageState extends State<SearchPage> {
     return traverse(classData);
   }
 
-  String? _firstNonEmptyString(
-    Map<String, dynamic> source,
-    List<String> keys,
-  ) {
+  String? _firstNonEmptyString(Map<String, dynamic> source, List<String> keys) {
     if (source.isEmpty || keys.isEmpty) return null;
     for (final key in keys) {
       final target = key.toLowerCase();
@@ -755,10 +746,7 @@ class _SearchPageState extends State<SearchPage> {
   int? _resolveTeacherId(Map<String, dynamic> classData) {
     final visited = <int>{};
 
-    int? traverse(
-      dynamic node, {
-      bool teacherContext = false,
-    }) {
+    int? traverse(dynamic node, {bool teacherContext = false}) {
       if (node is Map) {
         final map = node as Map<dynamic, dynamic>;
         final identity = identityHashCode(map);
@@ -787,15 +775,13 @@ class _SearchPageState extends State<SearchPage> {
           final key = entry.key.toString();
           final value = entry.value;
           final lowerKey = key.toLowerCase();
-          final nextContext = teacherContext ||
+          final nextContext =
+              teacherContext ||
               lowerKey.contains('teacher') ||
               lowerKey.contains('instructor') ||
               lowerKey.contains('tutor') ||
               lowerKey.contains('mentor');
-          final result = traverse(
-            value,
-            teacherContext: nextContext,
-          );
+          final result = traverse(value, teacherContext: nextContext);
           if (result != null) return result;
         }
       } else if (node is List) {
@@ -810,10 +796,7 @@ class _SearchPageState extends State<SearchPage> {
     return traverse(classData);
   }
 
-  int? _firstNonNullInt(
-    Map<dynamic, dynamic> source,
-    List<String> keys,
-  ) {
+  int? _firstNonNullInt(Map<dynamic, dynamic> source, List<String> keys) {
     if (source.isEmpty || keys.isEmpty) return null;
     for (final key in keys) {
       final target = key.toLowerCase();
