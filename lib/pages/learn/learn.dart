@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tutorium_frontend/pages/learn/mandatory_review_page.dart';
 import 'package:tutorium_frontend/service/class_sessions.dart'
     as class_sessions;
+import 'package:tutorium_frontend/service/class_readiness_service.dart';
 import 'package:tutorium_frontend/util/local_storage.dart';
 import 'package:tutorium_frontend/service/classes.dart' as classes;
 
@@ -70,6 +71,7 @@ class _LearnPageState extends State<LearnPage>
   class_sessions.ClassSession? _classSession;
   Timer? _copyResetTimer;
   bool _reviewShown = false;
+  bool _isHandlingTermination = false;
 
   @override
   void initState() {
@@ -200,6 +202,9 @@ class _LearnPageState extends State<LearnPage>
       final session = await class_sessions.ClassSession.fetchById(
         widget.classSessionId,
       );
+      debugPrint(
+        '📘 Session loaded: status=${session.classStatus}, finish=${session.classFinish}',
+      );
 
       if (!mounted) return;
 
@@ -214,12 +219,102 @@ class _LearnPageState extends State<LearnPage>
     }
   }
 
+  DateTime? _parseSessionDate(String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final value = raw.trim();
+    if (value.isEmpty) {
+      return null;
+    }
+
+    try {
+      final parsed = DateTime.parse(value);
+      return parsed.isUtc ? parsed.toLocal() : parsed;
+    } catch (e) {
+      debugPrint('⚠️ Failed to parse session date "$raw": $e');
+      return null;
+    }
+  }
+
+  bool _hasSessionEnded([class_sessions.ClassSession? sessionOverride]) {
+    final session = sessionOverride ?? _classSession;
+    if (session == null) {
+      debugPrint('ℹ️ Session data not yet available. Assuming ongoing.');
+      return false;
+    }
+
+    final normalizedStatus =
+        ClassReadinessService.normalizeStatus(session.classStatus);
+    debugPrint(
+      '🧭 Session status check: raw=${session.classStatus}, normalized=$normalizedStatus',
+    );
+    if (normalizedStatus == ClassReadinessService.statusCompleted) {
+      debugPrint('✅ Session marked as completed');
+      return true;
+    }
+
+    const terminalStatuses = {
+      'cancelled',
+      'canceled',
+      'cancel',
+      'expired',
+      'ended',
+      'closed',
+    };
+    final rawStatus = session.classStatus.trim().toLowerCase();
+    if (terminalStatuses.contains(rawStatus)) {
+      debugPrint('✅ Session terminated by status "$rawStatus"');
+      return true;
+    }
+
+    final finishTime = _parseSessionDate(session.classFinish);
+    if (finishTime != null) {
+      final now = DateTime.now();
+      debugPrint(
+        '⏱️ Session end time: $finishTime | Current: $now | isAfter: ${now.isAfter(finishTime)}',
+      );
+      if (now.isAfter(finishTime)) {
+        debugPrint('✅ Session has passed its scheduled end time');
+        return true;
+      }
+    } else {
+      debugPrint('ℹ️ No parsable end time available for session.');
+    }
+
+    return false;
+  }
+
+  Future<class_sessions.ClassSession?> _refreshSessionStatus() async {
+    debugPrint('🔄 Refreshing class session ${widget.classSessionId} status...');
+    try {
+      final session = await class_sessions.ClassSession.fetchById(
+        widget.classSessionId,
+      );
+      debugPrint(
+        '📘 Session refreshed: status=${session.classStatus}, finish=${session.classFinish}',
+      );
+      if (mounted) {
+        setState(() {
+          _classSession = session;
+        });
+      }
+      return session;
+    } catch (e) {
+      debugPrint('⚠️ Failed to refresh session status: $e');
+      return _classSession;
+    }
+  }
+
   String? _joinDisabledReason() {
     if (widget.jitsiMeetingUrl.trim().isEmpty) {
       return 'ไม่พบลิงก์ห้องเรียนจากระบบ';
     }
 
-    // Allow joining at any time (before, during, or after class)
+    if (_hasSessionEnded()) {
+      return 'คลาสนี้สิ้นสุดแล้ว ไม่สามารถเข้าร่วมได้อีก';
+    }
+
     return null;
   }
 
@@ -285,14 +380,35 @@ class _LearnPageState extends State<LearnPage>
   }
 
   Future<void> _handleConferenceTerminated(Object? error) async {
-    if (widget.isTeacher) {
-      if (!mounted) return;
-      Navigator.of(context).popUntil((route) => route.isFirst);
+    if (_isHandlingTermination) {
+      debugPrint('ℹ️ Termination handling already in progress, skipping.');
       return;
     }
 
-    // For learners, allow leaving at any time and show review
-    await _openMandatoryReview();
+    _isHandlingTermination = true;
+    try {
+      if (widget.isTeacher) {
+        if (!mounted) return;
+        Navigator.of(context).popUntil((route) => route.isFirst);
+        return;
+      }
+
+      final session = await _refreshSessionStatus();
+      final hasEnded = _hasSessionEnded(session);
+      debugPrint('🚪 Termination processed. Session ended? $hasEnded');
+
+      if (hasEnded) {
+        await _openMandatoryReview();
+      } else if (mounted) {
+        _showSnackBar(
+          'คุณออกจากห้องเรียนแล้ว สามารถเข้าร่วมใหม่ได้ระหว่างเวลาคลาส',
+          Icons.exit_to_app_rounded,
+          Colors.blueGrey.shade600,
+        );
+      }
+    } finally {
+      _isHandlingTermination = false;
+    }
   }
 
   Future<void> _handleReadyToClose() async {
