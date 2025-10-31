@@ -57,6 +57,7 @@ class NotificationService {
             "title": _getNotificationTitle(notificationType),
             "text": n["notification_description"] ?? "No description",
             "time": _formatDateTime(n["notification_date"]),
+            "originalTime": n["notification_date"],
             "isRead": n["read_flag"] ?? false,
             "type": notificationType,
             "userId": n["user_id"],
@@ -119,7 +120,8 @@ class NotificationService {
     debugPrint("📖 [DEBUG] URL: $url");
 
     final body = {
-      "notification_date": notification["time"],
+      "notification_date":
+          notification["originalTime"] ?? notification["time"],
       "notification_description": notification["text"],
       "notification_type": notification["type"],
       "read_flag": true,

@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:tutorium_frontend/models/models.dart';
 import 'package:tutorium_frontend/pages/home/teacher/my_classes_page.dart';
 import 'package:tutorium_frontend/pages/home/teacher/create_class_page.dart';
 import 'package:tutorium_frontend/pages/home/teacher/create_session_page.dart';
 import 'package:tutorium_frontend/pages/home/teacher/teacher_withdraw_page.dart';
 import 'package:tutorium_frontend/pages/home/teacher/register/payment_screen.dart';
-import 'package:tutorium_frontend/service/users.dart' as user_api;
 import 'package:tutorium_frontend/pages/widgets/api_service.dart' as legacy_api;
+import 'package:tutorium_frontend/service/ban_status_service.dart';
+import 'package:tutorium_frontend/service/ban_teachers.dart';
+import 'package:tutorium_frontend/service/users.dart' as user_api;
 import 'package:tutorium_frontend/util/cache_user.dart';
-import 'package:tutorium_frontend/util/local_storage.dart';
 import 'package:tutorium_frontend/util/class_cache_manager.dart';
+import 'package:tutorium_frontend/util/local_storage.dart';
 
 class TeacherHomePage extends StatefulWidget {
   final VoidCallback onSwitch;
@@ -25,8 +28,10 @@ class TeacherHomePageState extends State<TeacherHomePage> {
   bool _isLoading = true;
   int? _teacherId;
   bool _isTeacher = true;
+  bool _isTeacherBanned = false;
   String? _errorMessage;
   String? _teacherDisplayName;
+  BanStatusInfo? _teacherBanInfo;
   final _classCache = ClassCacheManager();
 
   @override
@@ -53,6 +58,8 @@ class TeacherHomePageState extends State<TeacherHomePage> {
         _isLoading = true;
         _isTeacher = true;
         _errorMessage = null;
+        _isTeacherBanned = false;
+        _teacherBanInfo = null;
       });
     }
 
@@ -84,6 +91,20 @@ class TeacherHomePageState extends State<TeacherHomePage> {
 
       _teacherId = teacher.id;
       _teacherDisplayName = _buildTeacherName(user);
+
+      final banInfo = await _fetchActiveTeacherBan(userId);
+      if (banInfo != null) {
+        if (mounted) {
+          setState(() {
+            _isTeacherBanned = true;
+            _teacherBanInfo = banInfo;
+            _classes = [];
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+
       await _loadClasses();
     } catch (e) {
       if (mounted) {
@@ -276,34 +297,37 @@ class TeacherHomePageState extends State<TeacherHomePage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : !_isTeacher
-          ? _buildNoTeacherState()
-          : _errorMessage != null
-          ? _buildErrorState()
-          : RefreshIndicator(
-              onRefresh: _loadClasses,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Quick Actions Section
-                      _buildQuickActions(),
-                      const SizedBox(height: 24),
+              ? _buildNoTeacherState()
+              : _isTeacherBanned
+                  ? _buildTeacherBannedState()
+                  : _errorMessage != null
+                      ? _buildErrorState()
+                      : RefreshIndicator(
+                          onRefresh: _loadClasses,
+                          child: SingleChildScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Quick Actions Section
+                                  _buildQuickActions(),
+                                  const SizedBox(height: 24),
 
-                      // My Classes Section
-                      _buildMyClassesSection(),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+                                  // My Classes Section
+                                  _buildMyClassesSection(),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
       floatingActionButton:
           (_isLoading ||
               !_isTeacher ||
               _teacherId == null ||
-              _errorMessage != null)
+              _errorMessage != null ||
+              _isTeacherBanned)
           ? null
           : FloatingActionButton.extended(
               onPressed: _navigateToCreateClass,
@@ -315,6 +339,225 @@ class TeacherHomePageState extends State<TeacherHomePage> {
               ),
             ),
     );
+  }
+
+  Widget _buildTeacherBannedState() {
+    final banInfo = _teacherBanInfo;
+    final remaining = banInfo?.formattedRemainingTime ?? '';
+
+    return RefreshIndicator(
+      onRefresh: _loadTeacherData,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.red.withValues(alpha: 0.12),
+                      blurRadius: 18,
+                      offset: const Offset(0, 12),
+                    ),
+                  ],
+                  border: Border.all(
+                    color: Colors.red.withValues(alpha: 0.3),
+                    width: 1.2,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.red[50],
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Icon(
+                            Icons.block,
+                            color: Colors.red[700],
+                            size: 36,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'สิทธิ์ครูผู้สอนถูกระงับชั่วคราว',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.red[900],
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'ระบบตรวจพบว่าบัญชีของคุณถูกระงับการใช้งานในบทบาทครูผู้สอน',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  color: Colors.grey.shade800,
+                                ),
+                              ),
+                              if (remaining.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  'เหลือเวลาอีก $remaining',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.red[700],
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    _buildBanDetailRow(
+                      icon: Icons.event,
+                      label: 'เริ่มระงับ',
+                      value: _formatBanDate(banInfo?.banStart),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildBanDetailRow(
+                      icon: Icons.event_available,
+                      label: 'สิ้นสุดระงับ',
+                      value: _formatBanDate(banInfo?.banEnd),
+                    ),
+                    if (banInfo?.reason != null &&
+                        banInfo!.reason!.trim().isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _buildBanDetailRow(
+                        icon: Icons.notes,
+                        label: 'เหตุผล',
+                        value: banInfo.reason!,
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    Text(
+                      'คุณยังสามารถเรียนรู้ในบทบาทผู้เรียนได้ตามปกติ ระหว่างนี้โปรดตรวจสอบอีเมลสำหรับข้อมูลเพิ่มเติม หรือรอจนกว่าจะถึงกำหนดสิ้นสุดการระงับ',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: ElevatedButton.icon(
+                        onPressed: _loadTeacherData,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('ตรวจสอบอีกครั้ง'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBanDetailRow({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 22, color: Colors.red[600]),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey[700],
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[900],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatBanDate(DateTime? date) {
+    if (date == null) return '-';
+    final localDate = date.toLocal();
+    return DateFormat('d MMM yyyy, HH:mm', 'th').format(localDate);
+  }
+
+  Future<BanStatusInfo?> _fetchActiveTeacherBan(int userId) async {
+    try {
+      final bans = await BanTeacher.fetchAll(
+        query: {'user_id': userId.toString()},
+      );
+
+      BanTeacher? activeBan;
+      DateTime? earliestEnd;
+      final now = DateTime.now();
+
+      for (final ban in bans) {
+        final banEnd = DateTime.tryParse(ban.banEnd);
+        if (banEnd == null || !banEnd.isAfter(now)) {
+          continue;
+        }
+
+        if (earliestEnd == null || banEnd.isBefore(earliestEnd)) {
+          activeBan = ban;
+          earliestEnd = banEnd;
+        }
+      }
+
+      if (activeBan == null || earliestEnd == null) {
+        return null;
+      }
+
+      final banStart = DateTime.tryParse(activeBan.banStart)?.toLocal();
+      final banEndLocal = earliestEnd.toLocal();
+      return BanStatusInfo(
+        isBanned: true,
+        banEnd: banEndLocal,
+        banStart: banStart,
+        reason: activeBan.banDescription,
+        roleType: 'teacher',
+      );
+    } catch (e) {
+      debugPrint('❌ Error checking teacher ban status: $e');
+    }
+
+    return null;
   }
 
   Widget _buildQuickActions() {
