@@ -30,7 +30,8 @@ android {
         versionName = flutter.versionName
 
         ndk {
-            abiFilters.add("arm64-v8a")
+            // Include common ABIs so Flutter can load native libs on emulators and devices.
+            abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86"))
         }
     }
 
