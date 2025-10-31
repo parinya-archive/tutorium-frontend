@@ -203,34 +203,36 @@ double _parseDouble(dynamic value) {
 List<String> _extractInterested(Map<String, dynamic> json) {
   final interested = json['Interested'];
   if (interested is List) {
-    final names = interested
-        .map((row) {
-          if (row is Map<String, dynamic>) {
-            final category = row['ClassCategory'];
-            if (category is Map<String, dynamic>) {
-              final name = category['class_category'] ?? category['name'];
-              return name?.toString().trim();
-            }
-          }
-          return null;
-        })
-        .where((value) => value != null && value!.isNotEmpty)
-        .map((value) => value!)
-        .toSet()
-        .toList(growable: false)
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final names =
+        interested
+            .map((row) {
+              if (row is Map<String, dynamic>) {
+                final category = row['ClassCategory'];
+                if (category is Map<String, dynamic>) {
+                  final name = category['class_category'] ?? category['name'];
+                  return name?.toString().trim();
+                }
+              }
+              return null;
+            })
+            .where((value) => value != null && value!.isNotEmpty)
+            .map((value) => value!)
+            .toSet()
+            .toList(growable: false)
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return names;
   }
 
   final categories = json['interested_categories'] ?? json['categories'];
   if (categories is List) {
-    final names = categories
-        .map((value) => value?.toString().trim())
-        .where((value) => value != null && value!.isNotEmpty)
-        .map((value) => value!)
-        .toSet()
-        .toList(growable: false)
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final names =
+        categories
+            .map((value) => value?.toString().trim())
+            .where((value) => value != null && value!.isNotEmpty)
+            .map((value) => value!)
+            .toSet()
+            .toList(growable: false)
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return names;
   }
 

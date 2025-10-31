@@ -66,6 +66,7 @@ class _SearchPageState extends State<SearchPage> {
   bool _isLoadingRecommended = false;
   bool _isLoadingPopularToggle = false;
   int? _cachedLearnerId;
+  String? _recommendationError;
   String currentQuery = "";
 
   List<String> selectedCategories = [];
@@ -294,7 +295,12 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Future<void> _loadRecommendedSessions({bool forceRefresh = false}) async {
-    setState(() => _isLoadingRecommended = true);
+    setState(() {
+      _isLoadingRecommended = true;
+      if (!forceRefresh) {
+        _recommendationError = null;
+      }
+    });
 
     try {
       final learnerId = await _resolveLearnerId(forceRefresh: forceRefresh);
@@ -307,12 +313,10 @@ class _SearchPageState extends State<SearchPage> {
         return;
       }
 
-      final response =
-          await learner_api.LearnerInterestService.fetchRecommendations(
-        learnerId,
-      );
-      final sources = (response.recommendedFound &&
-              response.recommendedClasses.isNotEmpty)
+      final response = await learner_api
+          .LearnerInterestService.fetchRecommendations(learnerId);
+      final sources =
+          (response.recommendedFound && response.recommendedClasses.isNotEmpty)
           ? response.recommendedClasses
           : response.remainingClasses;
 
@@ -324,12 +328,27 @@ class _SearchPageState extends State<SearchPage> {
         return;
       }
 
+      final normalized = sources
+          .map(_normalizeClassMap)
+          .whereType<Map<String, dynamic>>()
+          .toList(growable: false);
+      if (normalized.isEmpty) {
+        await _loadRecommendedFallback(
+          reason: 'unrecognized payload',
+          forceRefresh: forceRefresh,
+        );
+        return;
+      }
+
       final recommendations = await _buildRecommendationCards(
-        sources.take(12).toList(growable: false),
+        normalized.take(12).toList(growable: false),
       );
 
       if (!mounted) return;
-      setState(() => _recommendedClasses = recommendations);
+      setState(() {
+        _recommendedClasses = recommendations;
+        _recommendationError = null;
+      });
     } on ApiException catch (e) {
       debugPrint(
         'Search: recommendation API failed (${e.statusCode}). body=${e.body}',
@@ -371,18 +390,31 @@ class _SearchPageState extends State<SearchPage> {
 
       if (mapped.isEmpty) {
         if (!mounted) return;
-        setState(() => _recommendedClasses = []);
+        setState(() {
+          _recommendedClasses = [];
+          _recommendationError =
+              'ไม่พบคลาสที่แนะนำในตอนนี้ ลองใช้การค้นหาหรือกรองเพิ่มเติม';
+        });
         return;
       }
 
       final recommendations = await _buildRecommendationCards(mapped);
       if (!mounted) return;
-      setState(() => _recommendedClasses = recommendations);
+      setState(() {
+        _recommendedClasses = recommendations;
+        _recommendationError = recommendations.isEmpty
+            ? 'ไม่พบคลาสที่แนะนำในตอนนี้ ลองใช้การค้นหาหรือกรองเพิ่มเติม'
+            : 'กำลังแสดงคลาสยอดนิยมแทนคำแนะนำเฉพาะตัว';
+      });
     } catch (e, stackTrace) {
       debugPrint('Search: fallback recommendations failed: $e');
       debugPrint('$stackTrace');
       if (!mounted) return;
-      setState(() => _recommendedClasses = []);
+      setState(() {
+        _recommendedClasses = [];
+        _recommendationError =
+            'ไม่สามารถโหลดคำแนะนำได้ กรุณาลองใหม่หรือตรวจสอบการเชื่อมต่อ';
+      });
     }
   }
 
@@ -394,15 +426,21 @@ class _SearchPageState extends State<SearchPage> {
     }
 
     final now = DateTime.now();
-    final futures = candidates.take(12).map(
-      (classData) => _buildRecommendationEntry(classData, now),
-    );
+    final futures = candidates
+        .take(12)
+        .map((classData) => _buildRecommendationEntry(classData, now));
 
     final results = await Future.wait(futures);
-    final recommendations = results.whereType<_RecommendedClass>().toList(
-          growable: false,
-        )
-      ..sort((a, b) => a.date.compareTo(b.date));
+    final recommendations =
+        results.whereType<_RecommendedClass>().toList(growable: false)
+          ..sort((a, b) {
+            final aDate = a.date;
+            final bDate = b.date;
+            if (aDate == null && bDate == null) return 0;
+            if (aDate == null) return 1;
+            if (bDate == null) return -1;
+            return aDate.compareTo(bDate);
+          });
     return recommendations.take(6).toList(growable: false);
   }
 
@@ -423,32 +461,30 @@ class _SearchPageState extends State<SearchPage> {
           sessions.where((session) => session.classStart.isAfter(now)).toList()
             ..sort((a, b) => a.classStart.compareTo(b.classStart));
 
-      if (upcomingSessions.isEmpty) {
-        return null;
-      }
-
-      final session = upcomingSessions.first;
-      final startLocal = session.classStart.toLocal();
-      final endLocal = session.classFinish.toLocal();
+      final hasUpcomingSession = upcomingSessions.isNotEmpty;
+      final session = hasUpcomingSession ? upcomingSessions.first : null;
+      final startLocal = session?.classStart.toLocal();
+      final endLocal = session?.classFinish.toLocal();
 
       int? enrolledCount;
-      try {
-        final enrollments =
-            await ClassSessionService.getEnrollmentsBySession(session.id);
-        enrolledCount = enrollments.length;
-      } catch (e) {
-        debugPrint(
-          'Search: failed to fetch enrollments for session ${session.id}: $e',
-        );
+      if (session != null) {
+        try {
+          final enrollments = await ClassSessionService.getEnrollmentsBySession(
+            session.id,
+          );
+          enrolledCount = enrollments.length;
+        } catch (e) {
+          debugPrint(
+            'Search: failed to fetch enrollments for session ${session.id}: $e',
+          );
+        }
       }
 
       final teacherRaw =
           (classData['teacher_name'] ?? classData['teacherName'] ?? '')
               .toString()
               .trim();
-      final teacherName = teacherRaw.isEmpty
-          ? 'Unknown Teacher'
-          : teacherRaw;
+      final teacherName = teacherRaw.isEmpty ? 'Unknown Teacher' : teacherRaw;
 
       final imageUrl =
           (classData['banner_picture_url'] ??
@@ -462,7 +498,7 @@ class _SearchPageState extends State<SearchPage> {
 
       return _RecommendedClass(
         classId: classId,
-        sessionId: session.id,
+        sessionId: session?.id,
         className:
             (classData['class_name'] ??
                     classData['className'] ??
@@ -470,12 +506,15 @@ class _SearchPageState extends State<SearchPage> {
                 .toString(),
         teacherName: teacherName,
         date: startLocal,
-        startTime: TimeOfDay.fromDateTime(startLocal),
-        endTime: TimeOfDay.fromDateTime(endLocal),
+        startTime: startLocal != null
+            ? TimeOfDay.fromDateTime(startLocal)
+            : null,
+        endTime: endLocal != null ? TimeOfDay.fromDateTime(endLocal) : null,
         imageUrl: imageUrl,
         rating: rating,
         enrolledLearner: enrolledCount,
-        learnerLimit: session.learnerLimit,
+        learnerLimit: session?.learnerLimit,
+        hasUpcomingSession: hasUpcomingSession,
       );
     } catch (e, stackTrace) {
       debugPrint(
@@ -487,15 +526,43 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Map<String, dynamic>? _normalizeClassMap(dynamic value) {
-    if (value is Map<String, dynamic>) {
-      return Map<String, dynamic>.from(value);
-    }
-    if (value is Map) {
-      return value.map(
-        (key, dynamic val) => MapEntry(key.toString(), val),
-      );
-    }
-    return null;
+    if (value is! Map) return null;
+
+    final result = <String, dynamic>{};
+
+    value.forEach((rawKey, rawVal) {
+      if (rawVal == null) return;
+      final key = rawKey.toString();
+      final lowerKey = key.toLowerCase();
+
+      if (lowerKey == 'class' ||
+          lowerKey == 'classdoc' ||
+          lowerKey == 'classinfo') {
+        final nested = _normalizeClassMap(rawVal);
+        if (nested != null) {
+          result.addAll(nested);
+        }
+        return;
+      }
+
+      if (rawVal is Map) {
+        result[key] = rawVal.map((k, dynamic v) => MapEntry(k.toString(), v));
+        return;
+      }
+
+      if (rawVal is List) {
+        result[key] = rawVal
+            .map(
+              (item) => item is Map ? _normalizeClassMap(item) ?? item : item,
+            )
+            .toList(growable: false);
+        return;
+      }
+
+      result[key] = rawVal;
+    });
+
+    return result;
   }
 
   int? _asInt(dynamic value) {
@@ -1112,10 +1179,20 @@ class _SearchPageState extends State<SearchPage> {
                                       itemCount: 5,
                                     )
                                   : _recommendedClasses.isEmpty
-                                  ? const Center(
+                                  ? Center(
                                       key: ValueKey('no_recommended'),
-                                      child: Text(
-                                        'No recommended sessions found',
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                        ),
+                                        child: Text(
+                                          _recommendationError ??
+                                              'No recommended sessions found',
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            color: Colors.grey,
+                                          ),
+                                        ),
                                       ),
                                     )
                                   : ListView.builder(
@@ -1136,13 +1213,25 @@ class _SearchPageState extends State<SearchPage> {
                                                 item.enrolledLearner,
                                             learnerLimit: item.learnerLimit,
                                             teacherName: item.teacherName,
-                                            date: item.date,
-                                            startTime: item.startTime,
-                                            endTime: item.endTime,
+                                            date: item.date ?? DateTime.now(),
+                                            startTime:
+                                                item.startTime ??
+                                                const TimeOfDay(
+                                                  hour: 0,
+                                                  minute: 0,
+                                                ),
+                                            endTime:
+                                                item.endTime ??
+                                                const TimeOfDay(
+                                                  hour: 0,
+                                                  minute: 0,
+                                                ),
                                             imageUrl: item.imageUrl,
                                             fallbackAsset:
                                                 'assets/images/default.jpg',
                                             rating: item.rating,
+                                            showSchedule:
+                                                item.hasUpcomingSession,
                                           ),
                                         );
                                       },

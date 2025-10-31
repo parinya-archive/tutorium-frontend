@@ -1,4 +1,5 @@
 import 'package:tutorium_frontend/service/api_client.dart';
+import 'package:tutorium_frontend/util/local_storage.dart';
 
 class Learner {
   final int? id;
@@ -58,39 +59,39 @@ class Learner {
     await _client.delete('/learners/$id');
   }
 
-  static List<String> _extractInterestedCategories(
-    Map<String, dynamic> json,
-  ) {
+  static List<String> _extractInterestedCategories(Map<String, dynamic> json) {
     final interested = json['Interested'];
     if (interested is List) {
-      final names = interested
-          .map((raw) {
-            if (raw is Map<String, dynamic>) {
-              final category = raw['ClassCategory'];
-              if (category is Map<String, dynamic>) {
-                final name = category['class_category'] ?? category['name'];
-                return name?.toString().trim();
-              }
-            }
-            return null;
-          })
-          .where((value) => value != null && value!.isNotEmpty)
-          .map((value) => value!)
-          .toSet()
-          .toList(growable: false)
-        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      final names =
+          interested
+              .map((raw) {
+                if (raw is Map<String, dynamic>) {
+                  final category = raw['ClassCategory'];
+                  if (category is Map<String, dynamic>) {
+                    final name = category['class_category'] ?? category['name'];
+                    return name?.toString().trim();
+                  }
+                }
+                return null;
+              })
+              .where((value) => value != null && value!.isNotEmpty)
+              .map((value) => value!)
+              .toSet()
+              .toList(growable: false)
+            ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
       return names;
     }
 
     final direct = json['interested_categories'] ?? json['categories'];
     if (direct is List) {
-      final names = direct
-          .map((value) => value?.toString().trim())
-          .where((value) => value != null && value!.isNotEmpty)
-          .map((value) => value!)
-          .toSet()
-          .toList(growable: false)
-        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      final names =
+          direct
+              .map((value) => value?.toString().trim())
+              .where((value) => value != null && value!.isNotEmpty)
+              .map((value) => value!)
+              .toSet()
+              .toList(growable: false)
+            ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
       return names;
     }
 
@@ -106,13 +107,14 @@ class LearnerInterestState {
   factory LearnerInterestState.fromJson(Map<String, dynamic> json) {
     final categories = json['categories'];
     if (categories is List) {
-      final normalized = categories
-          .map((value) => value?.toString().trim())
-          .where((value) => value != null && value!.isNotEmpty)
-          .map((value) => value!)
-          .toSet()
-          .toList(growable: false)
-        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      final normalized =
+          categories
+              .map((value) => value?.toString().trim())
+              .where((value) => value != null && value!.isNotEmpty)
+              .map((value) => value!)
+              .toSet()
+              .toList(growable: false)
+            ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
       return LearnerInterestState(categories: normalized);
     }
     return const LearnerInterestState(categories: []);
@@ -158,8 +160,10 @@ class LearnerInterestService {
   static final ApiClient _client = ApiClient();
 
   static Future<LearnerInterestState> fetchInterests(int learnerId) async {
-    final response =
-        await _client.getJsonMap('/learners/$learnerId/interests');
+    final response = await _client.getJsonMap(
+      '/learners/$learnerId/interests',
+      headers: await _authHeaders(),
+    );
     return LearnerInterestState.fromJson(response);
   }
 
@@ -172,9 +176,8 @@ class LearnerInterestService {
     }
     final response = await _client.postJsonMap(
       '/learners/$learnerId/interests',
-      body: {
-        'class_category_ids': categoryIds,
-      },
+      headers: await _authHeaders(),
+      body: {'class_category_ids': categoryIds},
     );
     return LearnerInterestState.fromLearnerDoc(response);
   }
@@ -188,9 +191,8 @@ class LearnerInterestService {
     }
     final response = await _client.delete(
       '/learners/$learnerId/interests',
-      body: {
-        'class_category_ids': categoryIds,
-      },
+      headers: await _authHeaders(),
+      body: {'class_category_ids': categoryIds},
     );
 
     if (response is Map<String, dynamic>) {
@@ -203,8 +205,18 @@ class LearnerInterestService {
   static Future<RecommendedClassesResponse> fetchRecommendations(
     int learnerId,
   ) async {
-    final response =
-        await _client.getJsonMap('/learners/$learnerId/recommended');
+    final response = await _client.getJsonMap(
+      '/learners/$learnerId/recommended',
+      headers: await _authHeaders(),
+    );
     return RecommendedClassesResponse.fromJson(response);
+  }
+
+  static Future<Map<String, String>> _authHeaders() async {
+    final token = await LocalStorage.getToken();
+    if (token == null || token.isEmpty) {
+      return const {};
+    }
+    return {'Authorization': 'Bearer $token'};
   }
 }

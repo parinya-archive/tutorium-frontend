@@ -149,10 +149,7 @@ class _ProfilePageState extends State<ProfilePage> {
         debugPrint('⚠️ Failed to save user profile to cache: $e');
       }
 
-      await _hydrateLearnerInterests(
-        fetchedUser,
-        forceRefresh: forceRefresh,
-      );
+      await _hydrateLearnerInterests(fetchedUser, forceRefresh: forceRefresh);
       await fetchTeacherRating(fetchedUser);
       await fetchClasses(fetchedUser);
     } on ApiException catch (e) {
@@ -436,9 +433,9 @@ class _ProfilePageState extends State<ProfilePage> {
     final categories = await category_api.ClassCategory.fetchAll();
     final sorted = List<category_api.ClassCategory>.from(categories)
       ..sort(
-        (a, b) => a.classCategory
-            .toLowerCase()
-            .compareTo(b.classCategory.toLowerCase()),
+        (a, b) => a.classCategory.toLowerCase().compareTo(
+          b.classCategory.toLowerCase(),
+        ),
       );
     return sorted;
   }
@@ -452,12 +449,13 @@ class _ProfilePageState extends State<ProfilePage> {
       for (final category in categories)
         category.classCategory.toLowerCase(): category.id,
     };
-    final ids = names
-        .map((name) => lookup[name.toLowerCase()])
-        .whereType<int>()
-        .toSet()
-        .toList(growable: false)
-      ..sort();
+    final ids =
+        names
+            .map((name) => lookup[name.toLowerCase()])
+            .whereType<int>()
+            .toSet()
+            .toList(growable: false)
+          ..sort();
     return ids;
   }
 
@@ -469,16 +467,15 @@ class _ProfilePageState extends State<ProfilePage> {
     final lookup = <int, String>{
       for (final category in categories) category.id: category.classCategory,
     };
-    final names = ids
-        .map((id) => lookup[id])
-        .whereType<String>()
-        .map((name) => name.trim())
-        .where((name) => name.isNotEmpty)
-        .toSet()
-        .toList(growable: false)
-      ..sort(
-        (a, b) => a.toLowerCase().compareTo(b.toLowerCase()),
-      );
+    final names =
+        ids
+            .map((id) => lookup[id])
+            .whereType<String>()
+            .map((name) => name.trim())
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList(growable: false)
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return names;
   }
 
@@ -651,8 +648,8 @@ class _ProfilePageState extends State<ProfilePage> {
                       .map(
                         (name) => Chip(
                           label: Text(name),
-                          backgroundColor:
-                              theme.colorScheme.primary.withOpacity(0.08),
+                          backgroundColor: theme.colorScheme.primary
+                              .withOpacity(0.08),
                           labelStyle: TextStyle(
                             color: theme.colorScheme.primary,
                             fontWeight: FontWeight.w600,
@@ -713,12 +710,11 @@ class _ProfilePageState extends State<ProfilePage> {
     if (!mounted) return;
 
     final sortedCategories =
-        List<category_api.ClassCategory>.from(_allCategories)
-          ..sort(
-            (a, b) => a.classCategory
-                .toLowerCase()
-                .compareTo(b.classCategory.toLowerCase()),
-          );
+        List<category_api.ClassCategory>.from(_allCategories)..sort(
+          (a, b) => a.classCategory.toLowerCase().compareTo(
+            b.classCategory.toLowerCase(),
+          ),
+        );
     final originalSelection = Set<int>.from(_selectedCategoryIds);
     final selection = Set<int>.from(_selectedCategoryIds);
     String keyword = '';
@@ -732,12 +728,14 @@ class _ProfilePageState extends State<ProfilePage> {
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            final visibleCategories = sortedCategories.where((category) {
-              if (keyword.isEmpty) return true;
-              return category.classCategory
-                  .toLowerCase()
-                  .contains(keyword.toLowerCase());
-            }).toList(growable: false);
+            final visibleCategories = sortedCategories
+                .where((category) {
+                  if (keyword.isEmpty) return true;
+                  return category.classCategory.toLowerCase().contains(
+                    keyword.toLowerCase(),
+                  );
+                })
+                .toList(growable: false);
 
             return GestureDetector(
               onTap: () => FocusScope.of(context).unfocus(),
@@ -781,9 +779,9 @@ class _ProfilePageState extends State<ProfilePage> {
                                 Text(
                                   '${selection.length}/${sortedCategories.length}',
                                   style: TextStyle(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .primary,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -862,28 +860,31 @@ class _ProfilePageState extends State<ProfilePage> {
                                 child: Wrap(
                                   spacing: 10,
                                   runSpacing: 10,
-                                  children: visibleCategories.map((category) {
-                                    final isSelected =
-                                        selection.contains(category.id);
-                                    return FilterChip(
-                                      label: Text(category.classCategory),
-                                      selected: isSelected,
-                                      showCheckmark: true,
-                                      selectedColor: Theme.of(context)
-                                          .colorScheme
-                                          .primary
-                                          .withOpacity(0.15),
-                                      onSelected: (value) {
-                                        setModalState(() {
-                                          if (value) {
-                                            selection.add(category.id);
-                                          } else {
-                                            selection.remove(category.id);
-                                          }
-                                        });
-                                      },
-                                    );
-                                  }).toList(growable: false),
+                                  children: visibleCategories
+                                      .map((category) {
+                                        final isSelected = selection.contains(
+                                          category.id,
+                                        );
+                                        return FilterChip(
+                                          label: Text(category.classCategory),
+                                          selected: isSelected,
+                                          showCheckmark: true,
+                                          selectedColor: Theme.of(context)
+                                              .colorScheme
+                                              .primary
+                                              .withOpacity(0.15),
+                                          onSelected: (value) {
+                                            setModalState(() {
+                                              if (value) {
+                                                selection.add(category.id);
+                                              } else {
+                                                selection.remove(category.id);
+                                              }
+                                            });
+                                          },
+                                        );
+                                      })
+                                      .toList(growable: false),
                                 ),
                               ),
                             ),
@@ -970,10 +971,12 @@ class _ProfilePageState extends State<ProfilePage> {
   }) async {
     if (_isSavingInterests) return;
 
-    final additions =
-        nextSelection.difference(previousSelection).toList(growable: false);
-    final removals =
-        previousSelection.difference(nextSelection).toList(growable: false);
+    final additions = nextSelection
+        .difference(previousSelection)
+        .toList(growable: false);
+    final removals = previousSelection
+        .difference(nextSelection)
+        .toList(growable: false);
 
     if (additions.isEmpty && removals.isEmpty) {
       Navigator.of(sheetContext).pop();
@@ -1013,10 +1016,13 @@ class _ProfilePageState extends State<ProfilePage> {
         );
       }
 
-      final resolvedNames = latestState?.categories ??
+      final resolvedNames =
+          latestState?.categories ??
           _mapCategoryIdsToNames(nextSelection, categories);
-      final normalizedSelection =
-          _mapCategoryNamesToIds(resolvedNames, categories);
+      final normalizedSelection = _mapCategoryNamesToIds(
+        resolvedNames,
+        categories,
+      );
 
       if (mounted) {
         setState(() {
@@ -1025,8 +1031,8 @@ class _ProfilePageState extends State<ProfilePage> {
           _interestError = null;
           user = user?.copyWith(
             learner: user?.learner?.copyWith(
-                  interestedCategories: resolvedNames,
-                ),
+              interestedCategories: resolvedNames,
+            ),
           );
         });
       } else {
@@ -1034,9 +1040,7 @@ class _ProfilePageState extends State<ProfilePage> {
         _isSavingInterests = false;
         _interestError = null;
         user = user?.copyWith(
-          learner: user?.learner?.copyWith(
-                interestedCategories: resolvedNames,
-              ),
+          learner: user?.learner?.copyWith(interestedCategories: resolvedNames),
         );
       }
 
@@ -1057,8 +1061,9 @@ class _ProfilePageState extends State<ProfilePage> {
           ? 'เลือกรายการไม่ถูกต้อง กรุณาลองใหม่'
           : 'ไม่สามารถบันทึกสิ่งที่ชอบได้ (${e.statusCode})';
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(message)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
       }
     } catch (e, stackTrace) {
       debugPrint('❌ Profile: unexpected error while saving interests - $e');
